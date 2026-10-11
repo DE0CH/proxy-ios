@@ -180,8 +180,9 @@ final class TunnelController: ObservableObject {
         do {
             let r = try await ch.call(ClashCall.proxies)
             guard r.status == 200 else { apiError = "Clash API: HTTP \(r.status) \(r.body.prefix(120))"; return }
-            state = try ProxyState.parse(Data(r.body.utf8))
-            apiError = nil
+            let new = try ProxyState.parse(Data(r.body.utf8))
+            if new != state { state = new }      // no re-render (and no accessibility churn) when nothing changed
+            if apiError != nil { apiError = nil }
         } catch { apiError = "Clash API: \(error.localizedDescription)" }
     }
 

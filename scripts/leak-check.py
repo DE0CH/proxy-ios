@@ -2,7 +2,7 @@
 """Fails if any file under the given paths contains a value derived from the subscriptions.
 
 Patterns are built at runtime, never printed: the subscription URLs from env (LIANGXIN_SUB_URL, GULU_SUB_URL —
-whole URL, host, long path segments and query values) and, from the bundled snapshots in
+whole URL, host, token-like path segments and query values) and, from the bundled snapshots in
 App/Bundled/Subscriptions/*.json, every server host and its resolved IPs, uuid, password, Reality public key /
 short id, certificate pin and private key. Files are searched as bytes (screenshots, logs, anything).
 Prints only how many files were checked and the names of files with hits. Usage: leak-check.py PATH...
@@ -25,7 +25,8 @@ for k in ("LIANGXIN_SUB_URL", "GULU_SUB_URL"):
     p = urllib.parse.urlparse(u)
     add(p.hostname)
     for seg in p.path.split("/"):
-        if len(seg) >= 8:
+        # token-like segments only: a plain word such as the airport's name is not secret
+        if len(seg) >= 16 or (len(seg) >= 8 and any(c.isdigit() for c in seg) and any(c.isalpha() for c in seg)):
             add(seg)
     for _, vals in urllib.parse.parse_qs(p.query).items():
         for v in vals:

@@ -233,6 +233,8 @@ final class TunnelController: ObservableObject {
             if p.count == 2 { kv[String(p[0])] = String(p[1]) }
         }
         guard let loc = kv["loc"] else { return "no answer" }
-        return "\(loc) \(kv["ip"] ?? "?"), \(ms) ms for a fresh HTTPS request incl. TLS handshake"
+        // test mode (CI screenshots, which may be public) hides the exit IP
+        let ip = mock == nil ? kv["ip"] ?? "?" : "(IP hidden in test mode)"
+        return "\(loc) \(ip), \(ms) ms for a fresh HTTPS request incl. TLS handshake"
     }
 }

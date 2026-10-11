@@ -1,0 +1,72 @@
+# Builds the app on a GitHub macOS runner, walks every UI flow on an iPhone 17 simulator against a desktop
+# sing-box running the real generated config (the phone replica), then archives UNSIGNED and lets the export
+# cloud-sign with Apple's managed distribution certificate (App Store Connect API key) and upload to TestFlight.
+# One job on purpose: private-repo macOS minutes bill 10x, and the setup is shared.
+name: ios
+on:
+  workflow_dispatch:
+    inputs:
+      upload: { description: "Upload to TestFlight", type: boolean, default: true }
+      simulator: { description: "Run the simulator replica first", type: boolean, default: true }
+  push:
+    branches: [main]
+    paths: ["App/**", "PacketTunnel/**", "Packages/**", "UITests/**", "project.yml", "scripts/**", ".github/workflows/ios.yml"]
+concurrency: { group: ios, cancel-in-progress: false }
+permissions: { contents: read }
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 75
+    env:
+      LIANGXIN_SUB_URL: ${{ secrets.LIANGXIN_SUB_URL }}
+      GULU_SUB_URL: ${{ secrets.GULU_SUB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select the newest Xcode
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_*.app | grep -v -i beta | sort -V | tail -1)
+          echo "Using $XCODE"; sudo xcode-select -s "$XCODE"; xcodebuild -version
+          xcrun simctl list runtimes | grep -i ios | tail -3
+      - name: Prepare (Libbox, rule sets, secrets, xcodegen)
+        env: { BUILD_NUMBER: "${{ github.run_number }}" }
+        run: |
+          scripts/prepare.sh
+          sed -i '' "s/BUILD_NUMBER: \"1\"/BUILD_NUMBER: \"$BUILD_NUMBER\"/" project.yml && xcodegen generate --quiet
+      - name: ProxyCore unit tests
+        run: cd Packages/ProxyCore && swift test 2>&1 | tail -5
+      - name: Simulator replica (every flow, real nodes)
+        if: github.event_name == 'push' || inputs.simulator
+        timeout-minutes: 30
+        run: OUT=$PWD/test-output scripts/simulator-test.sh
+      - name: Keep the replica output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with: { name: replica, path: "test-output/", if-no-files-found: ignore }
+      - name: Archive (unsigned)
+        if: github.event_name == 'push' || inputs.upload
+        run: |
+          set -o pipefail
+          xcodebuild archive -project Proxy.xcodeproj -scheme Proxy -configuration Release -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/app.xcarchive" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            2>&1 | tee "$RUNNER_TEMP/archive.log" | grep -E "error:|\*\* " || true
+          grep -q "ARCHIVE SUCCEEDED" "$RUNNER_TEMP/archive.log"
+          # An unsigned bundle requests no entitlements and the export keeps only what is requested, so ad-hoc sign
+          # the extension and the app with their entitlement files first (the export re-signs both).
+          APP=$(ls -d "$RUNNER_TEMP/app.xcarchive/Products/Applications/"*.app | head -1)
+          codesign --force --timestamp=none --sign - --entitlements PacketTunnel/PacketTunnel.entitlements --generate-entitlement-der "$APP/PlugIns/PacketTunnel.appex"
+          codesign --force --timestamp=none --sign - --entitlements App/App.entitlements --generate-entitlement-der "$APP"
+          codesign -d --entitlements - "$APP/PlugIns/PacketTunnel.appex" 2>&1 | grep -A2 networkextension
+          du -sh "$APP" "$APP/PlugIns/PacketTunnel.appex"
+      - name: Export, cloud-sign and upload to TestFlight
+        if: github.event_name == 'push' || inputs.upload
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: |
+          set -o pipefail
+          KEY="$RUNNER_TEMP/AuthKey_$ASC_KEY_ID.p8"; printf '%s\n' "$ASC_PRIVATE_KEY" > "$KEY"; trap 'rm -f "$KEY"' EXIT
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/app.xcarchive" -exportOptionsPlist scripts/ExportOptions.plist \
+            -exportPath "$RUNNER_TEMP/export" -allowProvisioningUpdates -authenticationKeyPath "$KEY" \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" 2>&1 | tee "$RUNNER_TEMP/export.log" | tail -n 25
+          grep -qE "EXPORT SUCCEEDED|Upload succeeded|Uploaded" "$RUNNER_TEMP/export.log"

@@ -47,7 +47,7 @@ final class ConfigBuilderTests: XCTestCase {
         XCTAssertEqual(rules[cn]["outbound"] as? String, "direct")
         XCTAssertLessThan(ai, cn, "AI must match before the China rule")
         XCTAssertNil(outbound(c, "良心云 🇭🇰香港高速01|BGP|CMCU")?["domain_resolver"])
-        XCTAssertNil(outbound(c, "良心云 剩余流量：18.98 TB"))
+        XCTAssertNil(outbound(c, "良心云 剩余流量：1.00 TB"))
         XCTAssertNil(outbound(c, "自动选择"))
         XCTAssertEqual((c["inbounds"] as! [[String: Any]])[0]["type"] as? String, "tun")
         let paths = (route["rule_set"] as! [[String: Any]]).map { $0["path"] as! String }

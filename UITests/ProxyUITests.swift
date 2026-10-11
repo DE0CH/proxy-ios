@@ -45,7 +45,14 @@ final class ProxyUITests: XCTestCase {
     }
 
     func testEveryFlow() {
-        XCTAssertTrue(el("switch-咕噜HK").waitForExistence(timeout: 30), "the switches never appeared")
+        let up = el("switch-咕噜HK").waitForExistence(timeout: 30)
+        if !up {
+            shot("never-loaded")
+            if let dir = ProcessInfo.processInfo.environment["SCREENSHOT_DIR"] {
+                try? app.debugDescription.write(toFile: dir + "/never-loaded-tree.txt", atomically: true, encoding: .utf8)
+            }
+        }
+        XCTAssertTrue(up, "the switches never appeared")
         waitValue("switch-咕噜HK", "active")
         shot("main")
 

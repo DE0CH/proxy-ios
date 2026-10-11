@@ -64,7 +64,10 @@ struct ContentView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 } else if tunnel.connected {
-                    Section { ProgressView("Loading…") }
+                    Section {
+                        ProgressView("Loading…")
+                        if let e = tunnel.apiError { Text(e).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("api-error") }
+                    }
                 }
             }
             .navigationTitle("Proxy")

@@ -53,6 +53,7 @@ final class TunnelController: ObservableObject {
     @Published var testLines: [String] = []
     @Published var testing = false
     @Published var working = false
+    @Published var apiError: String?
 
     private var manager: NETunnelProviderManager?
     private var observer: NSObjectProtocol?
@@ -178,8 +179,10 @@ final class TunnelController: ObservableObject {
         guard let ch = channel else { return }
         do {
             let r = try await ch.call(ClashCall.proxies)
-            if r.status == 200 { state = try ProxyState.parse(Data(r.body.utf8)) }
-        } catch {}
+            guard r.status == 200 else { apiError = "Clash API: HTTP \(r.status) \(r.body.prefix(120))"; return }
+            state = try ProxyState.parse(Data(r.body.utf8))
+            apiError = nil
+        } catch { apiError = "Clash API: \(error.localizedDescription)" }
     }
 
     func select(_ group: String, _ member: String) async {

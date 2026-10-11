@@ -1,7 +1,8 @@
 #!/bin/bash
 # Prepares the tree for xcodebuild (CI and local): Libbox.xcframework (pinned release + sha256 from the public
 # DE0CH/libbox-apple), the sing-box rule sets, App/Generated/Secrets.swift and a build-time snapshot of both
-# subscriptions (from env LIANGXIN_SUB_URL / GULU_SUB_URL, both may be empty), then `xcodegen generate`.
+# subscriptions (from env LIANGXIN_SUB_URL / GULU_SUB_URL; when a live fetch fails here, the stored snapshot in
+# LIANGXIN_SUB_SNAPSHOT / GULU_SUB_SNAPSHOT — 咕噜云's host refuses GitHub's runners), then `xcodegen generate`.
 # Never prints the subscription URLs or contents.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -39,7 +40,13 @@ for a in liangxin gulu; do
   if curl -fsS -m 30 -A "$UA" -o "/tmp/$a.json" "$u" && python3 -c "import json,sys; d=json.load(open(sys.argv[1])); assert len(d['outbounds'])>3" "/tmp/$a.json"; then
     mv "/tmp/$a.json" "App/Bundled/Subscriptions/$a.json"; echo "$a: bundled snapshot ok"
   else
-    rm -f "/tmp/$a.json"; echo "::warning::$a subscription fetch failed; no bundled snapshot"
+    rm -f "/tmp/$a.json"
+    sv=$(echo "$a" | tr a-z A-Z)_SUB_SNAPSHOT
+    if [ -n "${!sv:-}" ]; then
+      printf '%s' "${!sv}" > "App/Bundled/Subscriptions/$a.json"; echo "::warning::$a live fetch failed here; bundled the stored snapshot ($sv)"
+    else
+      echo "::warning::$a subscription fetch failed; no bundled snapshot"
+    fi
   fi
 done
 touch App/Bundled/Subscriptions/.keep

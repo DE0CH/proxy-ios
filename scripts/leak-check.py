@@ -3,7 +3,7 @@
 
 Patterns are built at runtime, never printed: the subscription URLs from env (LIANGXIN_SUB_URL, GULU_SUB_URL —
 whole URL, host, token-like path segments and query values) and, from the bundled snapshots in
-App/Bundled/Subscriptions/*.json, every server host and its resolved IPs, uuid, password, Reality public key /
+App/Bundled/Subscriptions/*.json (outbounds/endpoints only), every server host and its resolved IPs, uuid, password, Reality public key /
 short id, certificate pin and private key. Files are searched as bytes (screenshots, logs, anything).
 Prints only how many files were checked and the names of files with hits. Usage: leak-check.py PATH...
 """
@@ -37,6 +37,8 @@ KEYS = {"server", "uuid", "password", "public_key", "short_id", "certificate_pub
 def walk(o):
     if isinstance(o, dict):
         for k, v in o.items():
+            if k == "server" and not (isinstance(v, str) and ("." in v or ":" in v)):
+                continue   # e.g. route.default_domain_resolver.server = "remote" is a DNS tag, not a host
             if k in KEYS:
                 if isinstance(v, list):
                     for x in v: add(x)
@@ -56,7 +58,11 @@ def walk(o):
 
 for f in glob.glob("App/Bundled/Subscriptions/*.json"):
     try:
-        walk(json.load(open(f)))
+        d = json.load(open(f))
+        # only the servers and their credentials: the profiles' dns/route sections name public resolvers
+        # (1.1.1.1, 223.5.5.5) and tags ("remote") that legitimately appear elsewhere
+        walk(d.get("outbounds", []))
+        walk(d.get("endpoints", []))
     except Exception:
         print(f"leak-check: could not read a bundled snapshot ({os.path.basename(f)})")
         sys.exit(2)

@@ -1,0 +1,8 @@
+{"outbounds":[
+ {"type":"anytls","tag":"🇭🇰香港01|倍率 x1","server":"x1.example","server_port":36031,"password":"x"},
+ {"type":"anytls","tag":"🇭🇰香港01|倍率 x3","server":"x3.example","server_port":46031,"password":"x","domain_resolver":"local"},
+ {"type":"anytls","tag":"🇭🇰香港02|倍率 x3","server":"x3.example","server_port":46032,"password":"x"},
+ {"type":"anytls","tag":"🇸🇬新加坡01|倍率 x3","server":"x3.example","server_port":46033,"password":"x"},
+ {"type":"anytls","tag":"🇯🇵日本|倍率 x3","server":"x3.example","server_port":46034,"password":"x"},
+ {"type":"urltest","tag":"自动选择","outbounds":["🇭🇰香港01|倍率 x3"]}
+]}

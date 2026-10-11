@@ -1,0 +1,8 @@
+.build/
+*.xcodeproj/
+build/
+DerivedData/
+Libbox.xcframework/
+PacketTunnel/Rules/*.srs
+App/Generated/
+.DS_Store

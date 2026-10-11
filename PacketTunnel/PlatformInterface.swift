@@ -170,8 +170,8 @@ final class PlatformInterface: NSObject, LibboxPlatformInterfaceProtocol, Libbox
 
     func underNetworkExtension() -> Bool { true }
     func includeAllNetworks() -> Bool { false }
-    func usePlatformAutoDetectInterfaceControl() -> Bool { false }
-    func autoDetectInterfaceControl(_: Int32) throws {}
+    func usePlatformAutoDetectControl() -> Bool { false }
+    func autoDetectControl(_: Int32) throws {}
     func useProcFS() -> Bool { false }
     func usePlatformShell() -> Bool { false }
     func usePlatformBridge() -> Bool { false }

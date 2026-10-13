@@ -2,7 +2,9 @@
 # Prepares the tree for xcodebuild (CI and local): Libbox.xcframework (pinned release + sha256 from the public
 # DE0CH/libbox-apple), the sing-box rule sets, App/Generated/Secrets.swift and a build-time snapshot of both
 # subscriptions (from env LIANGXIN_SUB_URL / GULU_SUB_URL; when a live fetch fails here, the stored snapshot in
-# LIANGXIN_SUB_SNAPSHOT / GULU_SUB_SNAPSHOT — 咕噜云's host refuses GitHub's runners), then `xcodegen generate`.
+# LIANGXIN_SUB_SNAPSHOT / GULU_SUB_SNAPSHOT — 咕噜云's host refuses GitHub's runners), the China node (env
+# CN_NODE_JSON: our Guangzhou server's outbounds as a sing-box profile; without it the build warns and China races
+# direct alone), then `xcodegen generate`.
 # Never prints the subscription URLs or contents.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -49,6 +51,12 @@ for a in liangxin gulu; do
     fi
   fi
 done
+rm -f App/Bundled/Subscriptions/cn.json
+if [ -n "${CN_NODE_JSON:-}" ] && printf '%s' "$CN_NODE_JSON" | python3 -c "import json,sys; assert json.load(sys.stdin)['outbounds']" 2>/dev/null; then
+  printf '%s' "$CN_NODE_JSON" > App/Bundled/Subscriptions/cn.json; echo "cn: bundled China node ok"
+else
+  echo "::warning::no valid CN_NODE_JSON: this build has no China node (China races direct alone)"
+fi
 touch App/Bundled/Subscriptions/.keep
 
 command -v xcodegen >/dev/null || brew install xcodegen >/dev/null

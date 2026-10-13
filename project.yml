@@ -54,6 +54,7 @@ targets:
         type: folder
         buildPhase: resources
     dependencies:
+      - package: ProxyCore
       - framework: Libbox.xcframework
         embed: false
       - sdk: libresolv.tbd

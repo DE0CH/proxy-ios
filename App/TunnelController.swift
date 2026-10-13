@@ -12,7 +12,16 @@ protocol ClashChannel {
 struct ProviderChannel: ClashChannel {
     let session: NETunnelProviderSession
     func call(_ r: ClashCall.Request) async throws -> ClashCall.Response {
-        let msg = try JSONSerialization.data(withJSONObject: ["clash": ["method": r.method, "path": r.path, "body": r.body as Any]])
+        try await send(["clash": ["method": r.method, "path": r.path, "body": r.body as Any]])
+    }
+    /// The extension's last network probe (`now`: probe again first).
+    func probe(now: Bool) async throws -> ProbeResult? {
+        let r = try await send(["probe": now])
+        guard r.status == 200 else { return nil }
+        return try JSONDecoder().decode(ProbeResult.self, from: Data(r.body.utf8))
+    }
+    private func send(_ obj: [String: Any]) async throws -> ClashCall.Response {
+        let msg = try JSONSerialization.data(withJSONObject: obj)
         return try await withCheckedThrowingContinuation { c in
             do {
                 try session.sendProviderMessage(msg) { data in
@@ -49,6 +58,8 @@ enum PacketError: LocalizedError {
 final class TunnelController: ObservableObject {
     @Published var status: NEVPNStatus = .invalid
     @Published var state: ProxyState?
+    @Published var probe: ProbeResult?
+    @Published var probing = false
     @Published var message: String?
     @Published var testLines: [String] = []
     @Published var testing = false
@@ -60,6 +71,7 @@ final class TunnelController: ObservableObject {
     private var poller: Task<Void, Never>?
     let mock: HTTPChannel?
     private let mockHTTPProxy: (String, Int)?
+    private let mockProbe: String?
 
     static let tunnelBundleID = "dev.de0ch.proxy.tunnel"
 
@@ -76,18 +88,20 @@ final class TunnelController: ObservableObject {
         } else {
             mockHTTPProxy = nil
         }
+        mockProbe = env["PROXY_MOCK_PROBE"]
     }
 
     var connected: Bool { status == .connected }
 
-    private var channel: ClashChannel? {
-        if let mock { return mock }
+    private var provider: ProviderChannel? {
         guard connected, let s = manager?.connection as? NETunnelProviderSession else { return nil }
         return ProviderChannel(session: s)
     }
 
+    private var channel: ClashChannel? { mock ?? provider }
+
     func load() async {
-        guard mock == nil else { startPolling(); return }
+        guard mock == nil else { await recheckNetwork(); startPolling(); return }
         do {
             let all = try await NETunnelProviderManager.loadAllFromPreferences()
             manager = all.first { ($0.protocolConfiguration as? NETunnelProviderProtocol)?.providerBundleIdentifier == Self.tunnelBundleID }
@@ -105,7 +119,7 @@ final class TunnelController: ObservableObject {
             Task { @MainActor in
                 guard let self else { return }
                 self.status = m.connection.status
-                if self.status == .connected { await self.refresh() } else if self.status == .disconnected { self.state = nil }
+                if self.status == .connected { await self.refresh() } else if self.status == .disconnected { self.state = nil; self.probe = nil }
             }
         }
     }
@@ -151,7 +165,7 @@ final class TunnelController: ObservableObject {
         }
     }
 
-    /// Re-fetches both subscriptions and reloads the running tunnel with the new nodes.
+    /// Re-fetches both subscriptions and reloads the running tunnel with the new nodes (it probes again after).
     func refreshSubscriptions() async {
         guard mock == nil, connected, let s = manager?.connection as? NETunnelProviderSession else { return }
         working = true
@@ -184,39 +198,53 @@ final class TunnelController: ObservableObject {
             if new != state { state = new }      // no re-render (and no accessibility churn) when nothing changed
             if apiError != nil { apiError = nil }
         } catch { apiError = "Clash API: \(error.localizedDescription)" }
+        if mock == nil, let p = provider, let new = try? await p.probe(now: false), new != probe { probe = new }
     }
 
-    func select(_ group: String, _ member: String) async {
-        guard let ch = channel else { return }
-        _ = try? await ch.call(ClashCall.select(group, member))
+    /// Probes the network again and applies the result (the extension does it by itself on every network change).
+    /// Test mode: the app probes from the simulator (or takes PROXY_MOCK_PROBE) and flips the selectors itself,
+    /// as the extension would.
+    func recheckNetwork() async {
+        probing = true
+        defer { probing = false }
+        if let mock {
+            let r: ProbeResult
+            if let spec = mockProbe { r = ProbeResult.mock(spec) } else { r = await NetworkProbe.run() }
+            for req in ClashCall.apply(r) { _ = try? await mock.call(req) }
+            probe = r
+        } else if let p = provider {
+            probe = (try? await p.probe(now: true)) ?? probe
+        }
         await refresh()
     }
 
-    /// Delay-tests every node of the regions in the running config (twice: the second run reuses each node's
-    /// warm session where the protocol allows, which is what the numbers show), then checks where both
-    /// switches actually exit.
+    /// Delay-tests every group's candidates (twice: the second run reuses each node's warm session where the
+    /// protocol allows, which is what the numbers show), then checks where each group actually exits.
     func runTest() async {
         guard let ch = channel, let state else { return }
         testing = true
         defer { testing = false }
-        let groups = Set(state.switches.flatMap { $0.regions.map(\.group) })
-        let regions = Plan.regions.filter { groups.contains($0.group) }
         for _ in 0..<2 {
             await withTaskGroup(of: Void.self) { g in
-                for r in regions { g.addTask { _ = try? await ch.call(ClashCall.testRegion(r)) } }
+                for grp in state.groups {
+                    let test = grp.directAllowed ? Plan.group(grp.tag)!.allTest : Plan.group(grp.tag)!.nodesTest
+                    g.addTask { _ = try? await ch.call(ClashCall.test(test)) }
+                }
             }
         }
         await refresh()
         let start = Date()
+        async let cn = exitOf("https://myip.ipip.net", china: true)
         async let intl = exitOf("https://www.cloudflare.com/cdn-cgi/trace")
         async let ai = exitOf("https://claude.ai/cdn-cgi/trace")
-        let (i, a) = await (intl, ai)
+        let (c, i, a) = await (cn, intl, ai)
         let fmt = DateFormatter()
         fmt.dateFormat = "HH:mm:ss"
-        testLines = [fmt.string(from: start), "International exit: \(i)", "AI exit (claude.ai): \(a)"]
+        testLines = [fmt.string(from: start), "China exit: \(c)", "International exit: \(i)", "AI exit (claude.ai): \(a)"]
     }
 
-    private func exitOf(_ link: String) async -> String {
+    /// Where a request through the tunnel exits: the country (and mainland region) only, never the IP.
+    private func exitOf(_ link: String, china: Bool = false) async -> String {
         let cfg = URLSessionConfiguration.ephemeral
         cfg.timeoutIntervalForRequest = 10
         if let (h, p) = mockHTTPProxy {
@@ -226,16 +254,19 @@ final class TunnelController: ObservableObject {
         let session = URLSession(configuration: cfg)
         defer { session.invalidateAndCancel() }
         let t = Date()
-        guard let (d, _) = try? await session.data(from: URL(string: link)!) else { return "no answer" }
+        var req = URLRequest(url: URL(string: link)!)
+        req.setValue("curl/8.7.1", forHTTPHeaderField: "User-Agent")
+        guard let (d, _) = try? await session.data(for: req) else { return "no answer" }
         let ms = Int(Date().timeIntervalSince(t) * 1000)
-        var kv: [String: String] = [:]
-        for line in String(decoding: d, as: UTF8.self).split(separator: "\n") {
-            let p = line.split(separator: "=", maxSplits: 1)
-            if p.count == 2 { kv[String(p[0])] = String(p[1]) }
+        let body = String(decoding: d, as: UTF8.self)
+        let place: String?
+        if china {
+            let v = NetworkProbe.chinaVerdict(body)
+            place = v.exit.map { v.valid ? $0 : "\($0) (not mainland)" }
+        } else {
+            place = NetworkProbe.traceLoc(body)
         }
-        guard let loc = kv["loc"] else { return "no answer" }
-        // test mode (CI screenshots, which may be public) hides the exit IP
-        let ip = mock == nil ? kv["ip"] ?? "?" : "(IP hidden in test mode)"
-        return "\(loc) \(ip), \(ms) ms for a fresh HTTPS request incl. TLS handshake"
+        guard let place else { return "no answer" }
+        return "\(place), \(ms) ms for a fresh HTTPS request incl. TLS handshake"
     }
 }

@@ -1,8 +1,10 @@
 {"outbounds":[
- {"type":"anytls","tag":"🇭🇰香港01|倍率 x1","server":"x1.example","server_port":20001,"password":"x"},
- {"type":"anytls","tag":"🇭🇰香港01|倍率 x3","server":"x3.example","server_port":20101,"password":"x","domain_resolver":"local"},
- {"type":"anytls","tag":"🇭🇰香港02|倍率 x3","server":"x3.example","server_port":20102,"password":"x"},
- {"type":"anytls","tag":"🇸🇬新加坡01|倍率 x3","server":"x3.example","server_port":20103,"password":"x"},
- {"type":"anytls","tag":"🇯🇵日本|倍率 x3","server":"x3.example","server_port":20104,"password":"x"},
- {"type":"urltest","tag":"自动选择","outbounds":["🇭🇰香港01|倍率 x3"]}
+ {"type": "anytls", "tag": "🇭🇰香港01|倍率 x1", "server": "x1.example", "server_port": 20001, "password": "x", "tls": {"enabled": true, "server_name": "x1.example"}},
+ {"type": "anytls", "tag": "🇭🇰香港01|倍率 x3", "server": "x3.example", "server_port": 20101, "password": "x", "domain_resolver": "local", "tls": {"enabled": true, "server_name": "x3.example"}},
+ {"type": "anytls", "tag": "🇭🇰香港02|倍率 x3", "server": "x3.example", "server_port": 20102, "password": "x", "tls": {"enabled": true, "server_name": "x3.example"}},
+ {"type": "anytls", "tag": "🇸🇬新加坡01|倍率 x3", "server": "x3.example", "server_port": 20103, "password": "x", "tls": {"enabled": true, "server_name": "x3.example"}},
+ {"type": "anytls", "tag": "🇯🇵日本|倍率 x3", "server": "x3.example", "server_port": 20104, "password": "x", "tls": {"enabled": true, "server_name": "x3.example"}},
+ {"type": "anytls", "tag": "🇲🇴澳门|倍率 x3", "server": "x3.example", "server_port": 20106, "password": "x", "tls": {"enabled": true, "server_name": "x3.example"}},
+ {"type": "anytls", "tag": "🇨🇳回国 广州|倍率 x3", "server": "x3.example", "server_port": 20105, "password": "x", "tls": {"enabled": true, "server_name": "x3.example"}},
+ {"type": "urltest", "tag": "自动选择", "outbounds": ["🇭🇰香港01|倍率 x3"]}
 ]}

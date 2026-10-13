@@ -56,11 +56,12 @@ struct ContentView: View {
                             Text(line).font(.footnote.monospaced()).foregroundStyle(.secondary)
                         }
                     }
-                    ForEach(state.switches) { sw in
-                        SwitchSection(sw: sw)
+                    NetworkSection()
+                    ForEach(state.groups) { g in
+                        GroupSection(group: g)
                     }
                     Section {
-                        Text("China goes direct. Delays are each node's last test (one HTTP request through the node). Tap a node to pin it; Auto picks the fastest node of that region and keeps it while it stays within 150 ms of the best.")
+                        Text("Fully automatic. Each group uses its fastest valid candidate: China needs an exit in mainland China, International one outside it, AI one outside mainland China and Hong Kong. Going direct is a candidate whenever this network's own exit is valid for the group; the network is checked again on every network change. Delays are each candidate's last test (one HTTP request through it).")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 } else if tunnel.connected {
@@ -96,84 +97,81 @@ struct ContentView: View {
     }
 }
 
-struct SwitchSection: View {
+struct NetworkSection: View {
     @EnvironmentObject var tunnel: TunnelController
-    let sw: ProxyState.Switch
 
     var body: some View {
-        Section(sw.title) {
-            HStack(spacing: 10) {
-                ForEach(sw.regions) { r in
-                    let on = r.group == sw.selected
-                    Button {
-                        if !on { Task { await tunnel.select(sw.tag, r.group) } }
-                    } label: {
-                        VStack(spacing: 2) {
-                            Text(r.label).fontWeight(.semibold)
-                            Text(on ? "active" : "switch").font(.caption2)
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .foregroundStyle(on ? Color.white : Color.primary)
-                        .background(on ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 8))
-                        .overlay(RoundedRectangle(cornerRadius: 8).stroke(on ? Color.accentColor : Color.secondary.opacity(0.4)))
+        Section("This network") {
+            if let p = tunnel.probe {
+                ForEach(Plan.groups, id: \.tag) { g in
+                    let v = p.verdicts[g.tag]
+                    HStack {
+                        Text("\(g.title) direct").font(.subheadline)
+                        Spacer()
+                        Text(v?.exit ?? "no answer").font(.subheadline).foregroundStyle(.secondary)
+                        Image(systemName: v?.valid == true ? "checkmark.circle.fill" : "xmark.circle")
+                            .foregroundStyle(v?.valid == true ? Color.green : Color.secondary)
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("switch-\(r.group)")
-                    .accessibilityValue(on ? "active" : "inactive")
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("probe-\(g.tag)")
+                    .accessibilityValue(v?.valid == true ? "valid" : "invalid")
+                }
+            } else {
+                Text("Checking where this network exits…").font(.caption).foregroundStyle(.secondary)
+            }
+            Button {
+                Task { await tunnel.recheckNetwork() }
+            } label: {
+                HStack {
+                    Text("Check this network again")
+                    Spacer()
+                    if tunnel.probing { ProgressView() }
                 }
             }
-            .padding(.vertical, 4)
-            ForEach(sw.regions) { r in
-                RegionNodes(region: r)
-            }
+            .disabled(tunnel.probing)
+            .accessibilityIdentifier("recheck-button")
         }
     }
 }
 
-struct RegionNodes: View {
-    @EnvironmentObject var tunnel: TunnelController
-    let region: ProxyState.Region
+struct GroupSection: View {
+    let group: ProxyState.Group
 
     var body: some View {
-        HStack {
-            Text("\(region.label) nodes").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            Spacer()
-            if region.auto {
-                Text("Auto").font(.caption.weight(.semibold)).foregroundStyle(.green).accessibilityIdentifier("mode-\(region.group)")
-                if let cur = region.current {
-                    Button("pin this node") { Task { await tunnel.select(region.group, cur) } }
-                        .font(.caption).accessibilityIdentifier("pin-\(region.group)")
-                }
-            } else {
-                Text("Pinned").font(.caption.weight(.semibold)).foregroundStyle(.orange).accessibilityIdentifier("mode-\(region.group)")
-                Button("use Auto") {
-                    Task { await tunnel.select(region.group, region.group + Plan.autoSuffix) }
-                }
-                .font(.caption).accessibilityIdentifier("auto-\(region.group)")
+        Section(group.title) {
+            HStack {
+                Text("Using").font(.subheadline.weight(.semibold))
+                Spacer()
+                Text(group.currentCandidate.map { "\($0.name) · \(delayText($0.delay))" } ?? "–")
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(.green)
             }
-        }
-        .buttonStyle(.borderless)
-        ForEach(region.nodes) { n in
-            let cur = n.tag == region.current
-            Button {
-                Task { await tunnel.select(region.group, n.tag) }
-            } label: {
+            .accessibilityElement(children: .combine)
+            .accessibilityIdentifier("using-\(group.tag)")
+            .accessibilityValue(group.currentCandidate?.name ?? "")
+            Text(group.directAllowed ? "Direct is valid on this network and races the nodes."
+                                     : "Direct is not valid on this network: nodes only.")
+                .font(.caption).foregroundStyle(.secondary)
+                .accessibilityIdentifier("direct-\(group.tag)")
+                .accessibilityValue(group.directAllowed ? "allowed" : "not allowed")
+            ForEach(group.candidates) { n in
+                let cur = n.tag == group.current
                 HStack {
                     Text(n.name).font(.subheadline.weight(cur ? .semibold : .regular))
                         .foregroundStyle(cur ? Color.green : Color.primary)
                     Spacer()
                     Text(delayText(n.delay)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("node-\(group.tag)-\(n.name)")
             }
-            .accessibilityIdentifier("node-\(region.group)-\(n.name)")
         }
     }
+}
 
-    func delayText(_ d: Int?) -> String {
-        switch d {
-        case nil: return "–"
-        case 0?: return "timeout"
-        case let ms?: return "\(ms) ms"
-        }
+func delayText(_ d: Int?) -> String {
+    switch d {
+    case nil: return "–"
+    case 0?: return "timeout"
+    case let ms?: return "\(ms) ms"
     }
 }

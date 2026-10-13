@@ -11,3 +11,4 @@ App/Generated/
 *.sub.yaml
 *.suburl
 subs/
+__pycache__/

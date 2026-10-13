@@ -13,8 +13,10 @@ DEVICE=${DEVICE:-iPhone 17}
 
 (cd Packages/ProxyCore && swift build -c release --product proxy-config >/dev/null 2>&1)
 CFG="$PRIVATE/sb"; mkdir -p "$CFG"; SECRET=$(uuidgen)
+CN_ARGS=(); EXPECT_CN=0
+if [ -f App/Bundled/Subscriptions/cn.json ]; then CN_ARGS=(--cn App/Bundled/Subscriptions/cn.json); EXPECT_CN=1; fi
 Packages/ProxyCore/.build/release/proxy-config --liangxin App/Bundled/Subscriptions/liangxin.json \
-  --gulu App/Bundled/Subscriptions/gulu.json --rules "$PWD/PacketTunnel/Rules" --data "$CFG" --secret "$SECRET" \
+  --gulu App/Bundled/Subscriptions/gulu.json "${CN_ARGS[@]}" --rules "$PWD/PacketTunnel/Rules" --data "$CFG" --secret "$SECRET" \
   --mixed 17891 --controller 127.0.0.1:19090 > "$CFG/config.json"   # stderr: per-region node counts only
 ARCH=$(uname -m | sed 's/x86_64/amd64/')
 curl -fsSL "https://github.com/SagerNet/sing-box/releases/download/v$SB_VERSION/sing-box-$SB_VERSION-darwin-$ARCH.tar.gz" | tar xz -C "$CFG"
@@ -22,6 +24,7 @@ curl -fsSL "https://github.com/SagerNet/sing-box/releases/download/v$SB_VERSION/
 SB=$!; trap 'kill $SB 2>/dev/null || true; rm -rf "$CFG"' EXIT
 for i in $(seq 1 30); do curl -sf -H "Authorization: Bearer $SECRET" http://127.0.0.1:19090/proxies >/dev/null && break; sleep 1; done
 echo "international exit from the runner: $(curl -s -m 15 -x http://127.0.0.1:17891 https://www.cloudflare.com/cdn-cgi/trace | sed -n 's/^loc=//p')"
+echo "network probe from the runner (verdicts and countries only):"; Packages/ProxyCore/.build/release/proxy-config --probe | sed "s/^/  /"
 
 UDID=$(xcrun simctl list devices available -j | python3 -c "
 import json,sys,re
@@ -34,7 +37,7 @@ for rt in reversed(rts):
 [ -n "$UDID" ] || { echo "no $DEVICE simulator"; exit 1; }
 xcrun simctl boot "$UDID" 2>/dev/null || true
 TEST_RUNNER_PROXY_MOCK_CLASH=http://127.0.0.1:19090 TEST_RUNNER_PROXY_MOCK_SECRET="$SECRET" \
-TEST_RUNNER_PROXY_MOCK_HTTP_PROXY=127.0.0.1:17891 TEST_RUNNER_SCREENSHOT_DIR="$OUT/screens" \
+TEST_RUNNER_PROXY_MOCK_HTTP_PROXY=127.0.0.1:17891 TEST_RUNNER_SCREENSHOT_DIR="$OUT/screens" TEST_RUNNER_PROXY_EXPECT_CN=$EXPECT_CN \
 xcodebuild test -project Proxy.xcodeproj -scheme Proxy -configuration Release -destination "id=$UDID" \
   -resultBundlePath "$PRIVATE/ui.xcresult" CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO > "$PRIVATE/xcodebuild-test.log" 2>&1 || true
 # printed: build errors and test verdicts only (node names at most, no subscription values)

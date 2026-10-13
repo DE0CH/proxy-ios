@@ -1,444 +1,287 @@
 {
-  "proxies": {
-    "GLOBAL": {
-      "type": "Fallback",
-      "now": "国际",
-      "all": [
-        "国际",
-        "AI",
-        "咕噜HK",
-        "咕噜HK·Auto",
-        "良心云HK",
-        "良心云HK·Auto",
-        "良心云SG",
-        "良心云SG·Auto",
-        "咕噜SG",
-        "咕噜SG·Auto",
-        "良心云 🇭🇰香港高速01|BGP|CMCU",
-        "良心云 🇭🇰香港高速02|BGP|CMCU",
-        "良心云 🇭🇰香港高速03|BGP|CMCU",
-        "良心云 🇭🇰香港高速04|BGP|CMCU",
-        "良心云 🇭🇰香港高速05|BGP|CMCU",
-        "良心云 🇸🇬新加坡高速01|BGP|CTCUCM",
-        "良心云 🇸🇬新加坡高速02|BGP|CTCUCM",
-        "良心云 🇸🇬新加坡高速03|BGP|CTCUCM",
-        "良心云 🇸🇬新加坡高速04|BGP|CTCUCM",
-        "良心云 🇸🇬新加坡高速05|BGP|CTCUCM",
-        "良心云 🇸🇬新加坡高速06|BGP|CTCU",
-        "良心云 🇸🇬新加坡高速07|BGP|CTCU",
-        "良心云 🇸🇬新加坡高速08|BGP|CTCU",
-        "良心云 🇸🇬新加坡专线01|BGP|流媒体",
-        "良心云 🇸🇬新加坡专线02|BGP|流媒体",
-        "良心云 🇸🇬新加坡专线03|BGP|流媒体",
-        "良心云 🇸🇬新加坡专线04|BGP|流媒体",
-        "咕噜 🇭🇰香港01|倍率 x3",
-        "咕噜 🇭🇰香港02|倍率 x3",
-        "咕噜 🇸🇬新加坡01|倍率 x3",
-        "咕噜 🇸🇬新加坡02|倍率 x3"
-      ],
-      "history": []
-    },
-    "国际": {
-      "type": "Selector",
-      "now": "咕噜HK",
-      "all": [
-        "咕噜HK",
-        "良心云HK"
-      ],
-      "history": [
-        {
-          "time": "2026-10-11T06:27:42.756963373Z",
-          "delay": 642
+    "proxies": {
+        "GLOBAL": {
+            "all": [
+                "International",
+                "China",
+                "China·nodes",
+                "China·all",
+                "International·nodes",
+                "International·all",
+                "AI",
+                "AI·nodes",
+                "AI·all",
+                "良心云 🇭🇰香港高速01|BGP|CMCU",
+                "良心云 🇭🇰香港高速02|BGP|CMCU",
+                "良心云 🇸🇬新加坡专线01|BGP|流媒体",
+                "良心云 🇯🇵日本高速01|CTCU|0.5x",
+                "咕噜 🇭🇰香港01|倍率 x3",
+                "咕噜 🇭🇰香港02|倍率 x3",
+                "咕噜 🇸🇬新加坡01|倍率 x3",
+                "咕噜 🇯🇵日本|倍率 x3",
+                "咕噜 🇲🇴澳门|倍率 x3",
+                "咕噜 🇨🇳回国 广州|倍率 x3",
+                "回国 广州 Hysteria2",
+                "回国 广州 VLESS-Reality"
+            ],
+            "history": [],
+            "name": "GLOBAL",
+            "now": "International",
+            "type": "Fallback",
+            "udp": true
+        },
+        "China": {
+            "type": "Selector",
+            "name": "China",
+            "udp": true,
+            "history": [],
+            "now": "China·nodes",
+            "all": [
+                "China·nodes",
+                "China·all"
+            ]
+        },
+        "China·nodes": {
+            "type": "URLTest",
+            "name": "China·nodes",
+            "udp": true,
+            "history": [],
+            "now": "咕噜 🇨🇳回国 广州|倍率 x3",
+            "all": [
+                "咕噜 🇨🇳回国 广州|倍率 x3",
+                "回国 广州 Hysteria2",
+                "回国 广州 VLESS-Reality"
+            ]
+        },
+        "China·all": {
+            "type": "URLTest",
+            "name": "China·all",
+            "udp": true,
+            "history": [
+                {
+                    "time": "2026-10-13T12:06:46.612107969Z",
+                    "delay": 1029
+                }
+            ],
+            "now": "direct·China",
+            "all": [
+                "咕噜 🇨🇳回国 广州|倍率 x3",
+                "回国 广州 Hysteria2",
+                "回国 广州 VLESS-Reality",
+                "direct·China"
+            ]
+        },
+        "International": {
+            "type": "Selector",
+            "name": "International",
+            "udp": true,
+            "history": [
+                {
+                    "time": "2026-10-13T12:06:45.620002776Z",
+                    "delay": 37
+                }
+            ],
+            "now": "International·all",
+            "all": [
+                "International·nodes",
+                "International·all"
+            ]
+        },
+        "International·nodes": {
+            "type": "URLTest",
+            "name": "International·nodes",
+            "udp": true,
+            "history": [],
+            "now": "良心云 🇭🇰香港高速01|BGP|CMCU",
+            "all": [
+                "良心云 🇭🇰香港高速01|BGP|CMCU",
+                "良心云 🇭🇰香港高速02|BGP|CMCU",
+                "良心云 🇸🇬新加坡专线01|BGP|流媒体",
+                "良心云 🇯🇵日本高速01|CTCU|0.5x",
+                "咕噜 🇭🇰香港01|倍率 x3",
+                "咕噜 🇭🇰香港02|倍率 x3",
+                "咕噜 🇸🇬新加坡01|倍率 x3",
+                "咕噜 🇯🇵日本|倍率 x3",
+                "咕噜 🇲🇴澳门|倍率 x3"
+            ]
+        },
+        "International·all": {
+            "type": "URLTest",
+            "name": "International·all",
+            "udp": true,
+            "history": [
+                {
+                    "time": "2026-10-13T12:06:45.620002776Z",
+                    "delay": 37
+                }
+            ],
+            "now": "direct·International",
+            "all": [
+                "良心云 🇭🇰香港高速01|BGP|CMCU",
+                "良心云 🇭🇰香港高速02|BGP|CMCU",
+                "良心云 🇸🇬新加坡专线01|BGP|流媒体",
+                "良心云 🇯🇵日本高速01|CTCU|0.5x",
+                "咕噜 🇭🇰香港01|倍率 x3",
+                "咕噜 🇭🇰香港02|倍率 x3",
+                "咕噜 🇸🇬新加坡01|倍率 x3",
+                "咕噜 🇯🇵日本|倍率 x3",
+                "咕噜 🇲🇴澳门|倍率 x3",
+                "direct·International"
+            ]
+        },
+        "AI": {
+            "type": "Selector",
+            "name": "AI",
+            "udp": true,
+            "history": [],
+            "now": "AI·nodes",
+            "all": [
+                "AI·nodes",
+                "AI·all"
+            ]
+        },
+        "AI·nodes": {
+            "type": "URLTest",
+            "name": "AI·nodes",
+            "udp": true,
+            "history": [],
+            "now": "良心云 🇸🇬新加坡专线01|BGP|流媒体",
+            "all": [
+                "良心云 🇸🇬新加坡专线01|BGP|流媒体",
+                "良心云 🇯🇵日本高速01|CTCU|0.5x",
+                "咕噜 🇸🇬新加坡01|倍率 x3",
+                "咕噜 🇯🇵日本|倍率 x3"
+            ]
+        },
+        "AI·all": {
+            "type": "URLTest",
+            "name": "AI·all",
+            "udp": true,
+            "history": [
+                {
+                    "time": "2026-10-13T12:06:45.617451835Z",
+                    "delay": 34
+                }
+            ],
+            "now": "direct·AI",
+            "all": [
+                "良心云 🇸🇬新加坡专线01|BGP|流媒体",
+                "良心云 🇯🇵日本高速01|CTCU|0.5x",
+                "咕噜 🇸🇬新加坡01|倍率 x3",
+                "咕噜 🇯🇵日本|倍率 x3",
+                "direct·AI"
+            ]
+        },
+        "良心云 🇭🇰香港高速01|BGP|CMCU": {
+            "type": "VLESS",
+            "name": "良心云 🇭🇰香港高速01|BGP|CMCU",
+            "udp": true,
+            "history": []
+        },
+        "良心云 🇭🇰香港高速02|BGP|CMCU": {
+            "type": "VLESS",
+            "name": "良心云 🇭🇰香港高速02|BGP|CMCU",
+            "udp": true,
+            "history": []
+        },
+        "良心云 🇸🇬新加坡专线01|BGP|流媒体": {
+            "type": "Hysteria2",
+            "name": "良心云 🇸🇬新加坡专线01|BGP|流媒体",
+            "udp": true,
+            "history": []
+        },
+        "良心云 🇯🇵日本高速01|CTCU|0.5x": {
+            "type": "VLESS",
+            "name": "良心云 🇯🇵日本高速01|CTCU|0.5x",
+            "udp": true,
+            "history": []
+        },
+        "咕噜 🇭🇰香港01|倍率 x3": {
+            "type": "AnyTLS",
+            "name": "咕噜 🇭🇰香港01|倍率 x3",
+            "udp": true,
+            "history": []
+        },
+        "咕噜 🇭🇰香港02|倍率 x3": {
+            "type": "AnyTLS",
+            "name": "咕噜 🇭🇰香港02|倍率 x3",
+            "udp": true,
+            "history": []
+        },
+        "咕噜 🇸🇬新加坡01|倍率 x3": {
+            "type": "AnyTLS",
+            "name": "咕噜 🇸🇬新加坡01|倍率 x3",
+            "udp": true,
+            "history": []
+        },
+        "咕噜 🇯🇵日本|倍率 x3": {
+            "type": "AnyTLS",
+            "name": "咕噜 🇯🇵日本|倍率 x3",
+            "udp": true,
+            "history": []
+        },
+        "咕噜 🇲🇴澳门|倍率 x3": {
+            "type": "AnyTLS",
+            "name": "咕噜 🇲🇴澳门|倍率 x3",
+            "udp": true,
+            "history": []
+        },
+        "咕噜 🇨🇳回国 广州|倍率 x3": {
+            "type": "AnyTLS",
+            "name": "咕噜 🇨🇳回国 广州|倍率 x3",
+            "udp": true,
+            "history": []
+        },
+        "回国 广州 Hysteria2": {
+            "type": "Hysteria2",
+            "name": "回国 广州 Hysteria2",
+            "udp": true,
+            "history": []
+        },
+        "回国 广州 VLESS-Reality": {
+            "type": "VLESS",
+            "name": "回国 广州 VLESS-Reality",
+            "udp": true,
+            "history": []
+        },
+        "direct": {
+            "type": "Direct",
+            "name": "direct",
+            "udp": true,
+            "history": []
+        },
+        "direct·China": {
+            "type": "Direct",
+            "name": "direct·China",
+            "udp": true,
+            "history": [
+                {
+                    "time": "2026-10-13T12:06:46.612107969Z",
+                    "delay": 1029
+                }
+            ]
+        },
+        "direct·International": {
+            "type": "Direct",
+            "name": "direct·International",
+            "udp": true,
+            "history": [
+                {
+                    "time": "2026-10-13T12:06:45.620002776Z",
+                    "delay": 37
+                }
+            ]
+        },
+        "direct·AI": {
+            "type": "Direct",
+            "name": "direct·AI",
+            "udp": true,
+            "history": [
+                {
+                    "time": "2026-10-13T12:06:45.617451835Z",
+                    "delay": 34
+                }
+            ]
         }
-      ]
-    },
-    "AI": {
-      "type": "Selector",
-      "now": "良心云SG",
-      "all": [
-        "良心云SG",
-        "咕噜SG"
-      ],
-      "history": [
-        {
-          "time": "2026-10-11T06:28:10.98770384Z",
-          "delay": 399
-        }
-      ]
-    },
-    "咕噜HK": {
-      "type": "Selector",
-      "now": "咕噜HK·Auto",
-      "all": [
-        "咕噜HK·Auto",
-        "咕噜 🇭🇰香港01|倍率 x3",
-        "咕噜 🇭🇰香港02|倍率 x3"
-      ],
-      "history": [
-        {
-          "time": "2026-10-11T06:27:42.756963373Z",
-          "delay": 642
-        }
-      ]
-    },
-    "咕噜HK·Auto": {
-      "type": "URLTest",
-      "now": "咕噜 🇭🇰香港01|倍率 x3",
-      "all": [
-        "咕噜 🇭🇰香港01|倍率 x3",
-        "咕噜 🇭🇰香港02|倍率 x3"
-      ],
-      "history": [
-        {
-          "time": "2026-10-11T06:27:42.756963373Z",
-          "delay": 642
-        }
-      ]
-    },
-    "良心云HK": {
-      "type": "Selector",
-      "now": "良心云HK·Auto",
-      "all": [
-        "良心云HK·Auto",
-        "良心云 🇭🇰香港高速01|BGP|CMCU",
-        "良心云 🇭🇰香港高速02|BGP|CMCU",
-        "良心云 🇭🇰香港高速03|BGP|CMCU",
-        "良心云 🇭🇰香港高速04|BGP|CMCU",
-        "良心云 🇭🇰香港高速05|BGP|CMCU"
-      ],
-      "history": [
-        {
-          "time": "2026-10-11T06:28:31.387731529Z",
-          "delay": 318
-        }
-      ]
-    },
-    "良心云HK·Auto": {
-      "type": "URLTest",
-      "now": "良心云 🇭🇰香港高速01|BGP|CMCU",
-      "all": [
-        "良心云 🇭🇰香港高速01|BGP|CMCU",
-        "良心云 🇭🇰香港高速02|BGP|CMCU",
-        "良心云 🇭🇰香港高速03|BGP|CMCU",
-        "良心云 🇭🇰香港高速04|BGP|CMCU",
-        "良心云 🇭🇰香港高速05|BGP|CMCU"
-      ],
-      "history": [
-        {
-          "time": "2026-10-11T06:28:31.387731529Z",
-          "delay": 318
-        }
-      ]
-    },
-    "良心云SG": {
-      "type": "Selector",
-      "now": "良心云SG·Auto",
-      "all": [
-        "良心云SG·Auto",
-        "良心云 🇸🇬新加坡高速01|BGP|CTCUCM",
-        "良心云 🇸🇬新加坡高速02|BGP|CTCUCM",
-        "良心云 🇸🇬新加坡高速03|BGP|CTCUCM",
-        "良心云 🇸🇬新加坡高速04|BGP|CTCUCM",
-        "良心云 🇸🇬新加坡高速05|BGP|CTCUCM",
-        "良心云 🇸🇬新加坡高速06|BGP|CTCU",
-        "良心云 🇸🇬新加坡高速07|BGP|CTCU",
-        "良心云 🇸🇬新加坡高速08|BGP|CTCU",
-        "良心云 🇸🇬新加坡专线01|BGP|流媒体",
-        "良心云 🇸🇬新加坡专线02|BGP|流媒体",
-        "良心云 🇸🇬新加坡专线03|BGP|流媒体",
-        "良心云 🇸🇬新加坡专线04|BGP|流媒体"
-      ],
-      "history": [
-        {
-          "time": "2026-10-11T06:28:10.98770384Z",
-          "delay": 399
-        }
-      ]
-    },
-    "良心云SG·Auto": {
-      "type": "URLTest",
-      "now": "良心云 🇸🇬新加坡高速08|BGP|CTCU",
-      "all": [
-        "良心云 🇸🇬新加坡高速01|BGP|CTCUCM",
-        "良心云 🇸🇬新加坡高速02|BGP|CTCUCM",
-        "良心云 🇸🇬新加坡高速03|BGP|CTCUCM",
-        "良心云 🇸🇬新加坡高速04|BGP|CTCUCM",
-        "良心云 🇸🇬新加坡高速05|BGP|CTCUCM",
-        "良心云 🇸🇬新加坡高速06|BGP|CTCU",
-        "良心云 🇸🇬新加坡高速07|BGP|CTCU",
-        "良心云 🇸🇬新加坡高速08|BGP|CTCU",
-        "良心云 🇸🇬新加坡专线01|BGP|流媒体",
-        "良心云 🇸🇬新加坡专线02|BGP|流媒体",
-        "良心云 🇸🇬新加坡专线03|BGP|流媒体",
-        "良心云 🇸🇬新加坡专线04|BGP|流媒体"
-      ],
-      "history": [
-        {
-          "time": "2026-10-11T06:28:10.98770384Z",
-          "delay": 399
-        }
-      ]
-    },
-    "咕噜SG": {
-      "type": "Selector",
-      "now": "咕噜SG·Auto",
-      "all": [
-        "咕噜SG·Auto",
-        "咕噜 🇸🇬新加坡01|倍率 x3",
-        "咕噜 🇸🇬新加坡02|倍率 x3"
-      ],
-      "history": [
-        {
-          "time": "2026-10-11T06:28:59.369649224Z",
-          "delay": 239
-        }
-      ]
-    },
-    "咕噜SG·Auto": {
-      "type": "URLTest",
-      "now": "咕噜 🇸🇬新加坡01|倍率 x3",
-      "all": [
-        "咕噜 🇸🇬新加坡01|倍率 x3",
-        "咕噜 🇸🇬新加坡02|倍率 x3"
-      ],
-      "history": [
-        {
-          "time": "2026-10-11T06:28:59.369649224Z",
-          "delay": 239
-        }
-      ]
-    },
-    "良心云 🇭🇰香港高速01|BGP|CMCU": {
-      "type": "VLESS",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:28:31.387731529Z",
-          "delay": 318
-        }
-      ]
-    },
-    "良心云 🇭🇰香港高速02|BGP|CMCU": {
-      "type": "VLESS",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:28:31.708451925Z",
-          "delay": 400
-        }
-      ]
-    },
-    "良心云 🇭🇰香港高速03|BGP|CMCU": {
-      "type": "VLESS",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:28:31.387497147Z",
-          "delay": 317
-        }
-      ]
-    },
-    "良心云 🇭🇰香港高速04|BGP|CMCU": {
-      "type": "VLESS",
-      "now": null,
-      "all": null,
-      "history": []
-    },
-    "良心云 🇭🇰香港高速05|BGP|CMCU": {
-      "type": "VLESS",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:28:31.388096783Z",
-          "delay": 318
-        }
-      ]
-    },
-    "良心云 🇸🇬新加坡高速01|BGP|CTCUCM": {
-      "type": "VLESS",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:28:11.389105393Z",
-          "delay": 484
-        }
-      ]
-    },
-    "良心云 🇸🇬新加坡高速02|BGP|CTCUCM": {
-      "type": "VLESS",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:28:11.388623438Z",
-          "delay": 401
-        }
-      ]
-    },
-    "良心云 🇸🇬新加坡高速03|BGP|CTCUCM": {
-      "type": "VLESS",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:28:11.389227774Z",
-          "delay": 485
-        }
-      ]
-    },
-    "良心云 🇸🇬新加坡高速04|BGP|CTCUCM": {
-      "type": "VLESS",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:28:11.389339366Z",
-          "delay": 560
-        }
-      ]
-    },
-    "良心云 🇸🇬新加坡高速05|BGP|CTCUCM": {
-      "type": "VLESS",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:28:11.388384456Z",
-          "delay": 396
-        }
-      ]
-    },
-    "良心云 🇸🇬新加坡高速06|BGP|CTCU": {
-      "type": "VLESS",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:28:11.708774008Z",
-          "delay": 809
-        }
-      ]
-    },
-    "良心云 🇸🇬新加坡高速07|BGP|CTCU": {
-      "type": "VLESS",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:28:10.987891092Z",
-          "delay": 399
-        }
-      ]
-    },
-    "良心云 🇸🇬新加坡高速08|BGP|CTCU": {
-      "type": "VLESS",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:28:10.98770384Z",
-          "delay": 399
-        }
-      ]
-    },
-    "良心云 🇸🇬新加坡专线01|BGP|流媒体": {
-      "type": "Hysteria2",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:28:11.388940081Z",
-          "delay": 318
-        }
-      ]
-    },
-    "良心云 🇸🇬新加坡专线02|BGP|流媒体": {
-      "type": "Hysteria2",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:28:12.508596513Z",
-          "delay": 317
-        }
-      ]
-    },
-    "良心云 🇸🇬新加坡专线03|BGP|流媒体": {
-      "type": "Hysteria2",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:28:12.667987827Z",
-          "delay": 320
-        }
-      ]
-    },
-    "良心云 🇸🇬新加坡专线04|BGP|流媒体": {
-      "type": "Hysteria2",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:28:11.788773908Z",
-          "delay": 315
-        }
-      ]
-    },
-    "咕噜 🇭🇰香港01|倍率 x3": {
-      "type": "AnyTLS",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:27:42.756963373Z",
-          "delay": 642
-        }
-      ]
-    },
-    "咕噜 🇭🇰香港02|倍率 x3": {
-      "type": "AnyTLS",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:27:42.75670928Z",
-          "delay": 559
-        }
-      ]
-    },
-    "咕噜 🇸🇬新加坡01|倍率 x3": {
-      "type": "AnyTLS",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:28:59.369649224Z",
-          "delay": 239
-        }
-      ]
-    },
-    "咕噜 🇸🇬新加坡02|倍率 x3": {
-      "type": "AnyTLS",
-      "now": null,
-      "all": null,
-      "history": [
-        {
-          "time": "2026-10-11T06:28:59.322343324Z",
-          "delay": 227
-        }
-      ]
-    },
-    "direct": {
-      "type": "Direct",
-      "now": null,
-      "all": null,
-      "history": []
     }
-  }
 }

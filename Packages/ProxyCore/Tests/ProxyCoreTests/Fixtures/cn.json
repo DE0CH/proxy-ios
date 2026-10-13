@@ -1,0 +1,4 @@
+{"outbounds":[
+ {"type": "hysteria2", "tag": "广州 Hysteria2", "server": "gz.example", "server_port": 30443, "password": "x", "tls": {"enabled": true, "server_name": "gz.example"}},
+ {"type": "vless", "tag": "广州 VLESS-Reality", "server": "gz.example", "server_port": 30843, "uuid": "00000000-0000-4000-8000-000000000000", "flow": "xtls-rprx-vision", "tls": {"enabled": true, "server_name": "gz.example"}}
+]}

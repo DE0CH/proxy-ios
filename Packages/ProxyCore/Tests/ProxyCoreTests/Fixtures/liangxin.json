@@ -1,9 +1,9 @@
 {"outbounds":[
- {"type":"selector","tag":"良心云","outbounds":["🇭🇰香港高速01|BGP|CMCU"]},
- {"type":"vless","tag":"剩余流量：1.00 TB","server":"info.example","server_port":443,"uuid":"00000000-0000-0000-0000-000000000000"},
- {"type":"vless","tag":"🇭🇰香港高速01|BGP|CMCU","server":"hk1.example","server_port":443,"uuid":"00000000-0000-0000-0000-000000000001","domain_resolver":"local","tls":{"enabled":true,"server_name":"hk1.example"}},
- {"type":"vless","tag":"🇭🇰香港高速02|BGP|CMCU","server":"hk2.example","server_port":443,"uuid":"00000000-0000-0000-0000-000000000002","domain_resolver":"local"},
- {"type":"hysteria2","tag":"🇸🇬新加坡专线01|BGP|流媒体","server":"sg1.example","server_ports":["60000:65530"],"password":"x","domain_resolver":"local","tls":{"enabled":true,"insecure":true}},
- {"type":"vless","tag":"🇯🇵日本高速01|CTCU|0.5x","server":"jp1.example","server_port":443,"uuid":"00000000-0000-0000-0000-000000000003"},
- {"type":"direct","tag":"direct"}
+ {"type": "selector", "tag": "良心云", "outbounds": ["🇭🇰香港高速01|BGP|CMCU"]},
+ {"type": "vless", "tag": "剩余流量：1.00 TB", "server": "info.example", "server_port": 443, "uuid": "00000000-0000-0000-0000-000000000000", "tls": {"enabled": true, "server_name": "info.example"}},
+ {"type": "vless", "tag": "🇭🇰香港高速01|BGP|CMCU", "server": "hk1.example", "server_port": 443, "uuid": "00000000-0000-0000-0000-000000000001", "domain_resolver": "local", "tls": {"enabled": true, "server_name": "hk1.example"}},
+ {"type": "vless", "tag": "🇭🇰香港高速02|BGP|CMCU", "server": "hk2.example", "server_port": 443, "uuid": "00000000-0000-0000-0000-000000000002", "domain_resolver": "local", "tls": {"enabled": true, "server_name": "hk2.example"}},
+ {"type": "hysteria2", "tag": "🇸🇬新加坡专线01|BGP|流媒体", "server": "sg1.example", "server_ports": ["60000:65530"], "password": "x", "domain_resolver": "local", "tls": {"enabled": true, "insecure": true}},
+ {"type": "vless", "tag": "🇯🇵日本高速01|CTCU|0.5x", "server": "jp1.example", "server_port": 443, "uuid": "00000000-0000-0000-0000-000000000003", "tls": {"enabled": true, "server_name": "jp1.example"}},
+ {"type": "direct", "tag": "direct"}
 ]}

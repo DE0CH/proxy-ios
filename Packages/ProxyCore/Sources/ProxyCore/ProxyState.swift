@@ -4,31 +4,28 @@ public enum ProxyStateError: Error { case unexpectedAnswer }
 
 /// What the UI shows, read from sing-box's Clash API `GET /proxies`.
 public struct ProxyState: Equatable {
-    public struct Node: Equatable, Identifiable {
+    public struct Candidate: Equatable, Identifiable {
         public let tag: String
         public let delay: Int?          // last test in ms; nil = never tested, 0 = failed
         public var id: String { tag }
-        /// The tag without the airport prefix, for display.
-        public var name: String { tag.replacingOccurrences(of: "^(良心云|咕噜) ", with: "", options: .regularExpression) }
+        public var isDirect: Bool { tag.hasPrefix(Plan.directPrefix) }
+        /// The tag without the source prefix, for display.
+        public var name: String {
+            isDirect ? "Direct" : tag.replacingOccurrences(of: "^(良心云|咕噜|回国) ", with: "", options: .regularExpression)
+        }
     }
-    public struct Region: Equatable, Identifiable {
-        public let group: String
-        public let label: String
-        public let auto: Bool           // true: the Auto urltest is selected; false: a node is pinned
-        public let current: String?     // the node actually in use (Auto's pick, or the pinned node)
-        public let nodes: [Node]
-        public var id: String { group }
-    }
-    public struct Switch: Equatable, Identifiable {
+    public struct Group: Equatable, Identifiable {
         public let tag: String
         public let title: String
-        public let selected: String     // a region group
-        public let regions: [Region]    // the choices that exist in the running config
+        public let directAllowed: Bool  // the selector is on `·all`: direct races the nodes on this network
+        public let current: String?     // the candidate in use (the urltest's pick)
+        public let candidates: [Candidate]
         public var id: String { tag }
+        public var currentCandidate: Candidate? { candidates.first { $0.tag == current } }
     }
-    public let switches: [Switch]
+    public let groups: [Group]
 
-    /// Parses `GET /proxies`. Regions or switches missing from the running config are left out.
+    /// Parses `GET /proxies`. Groups missing from the running config are left out.
     public static func parse(_ data: Data) throws -> ProxyState {
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let proxies = obj["proxies"] as? [String: [String: Any]] else {
@@ -38,25 +35,19 @@ public struct ProxyState: Equatable {
             guard let h = proxies[tag]?["history"] as? [[String: Any]], let last = h.last else { return nil }
             return (last["delay"] as? NSNumber)?.intValue
         }
-        var switches: [Switch] = []
-        for sw in Plan.switches {
-            guard let s = proxies[sw.tag], let now = s["now"] as? String else { continue }
-            var regions: [Region] = []
-            for r in sw.choices {
-                guard let g = proxies[r.group], let all = g["all"] as? [String] else { continue }
-                let sel = g["now"] as? String
-                let isAuto = sel == r.auto
-                let current = isAuto ? proxies[r.auto]?["now"] as? String : sel
-                let nodes = all.filter { $0 != r.auto }.map { Node(tag: $0, delay: lastDelay($0)) }
-                regions.append(Region(group: r.group, label: r.label, auto: isAuto, current: current, nodes: nodes))
-            }
-            switches.append(Switch(tag: sw.tag, title: sw.title, selected: now, regions: regions))
+        var groups: [Group] = []
+        for g in Plan.groups {
+            guard let sel = proxies[g.tag], let test = sel["now"] as? String,
+                  let t = proxies[test], let all = t["all"] as? [String] else { continue }
+            groups.append(Group(tag: g.tag, title: g.title, directAllowed: test == g.allTest,
+                                current: t["now"] as? String,
+                                candidates: all.map { Candidate(tag: $0, delay: lastDelay($0)) }))
         }
-        return ProxyState(switches: switches)
+        return ProxyState(groups: groups)
     }
 }
 
-/// The Clash API calls the app makes (relayed to the extension's loopback controller).
+/// The Clash API calls the app and the extension make (the app's are relayed to the extension's loopback controller).
 public enum ClashCall {
     public struct Request: Codable, Equatable {
         public let method: String
@@ -78,13 +69,15 @@ public enum ClashCall {
         return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
     }
     public static let proxies = Request(method: "GET", path: "/proxies")
-    /// Select `member` in selector `group` (a switch choice, a pinned node, or the region's Auto).
+    /// Select `member` in selector `group` (the probe's `·nodes` / `·all` choice).
     public static func select(_ group: String, _ member: String) -> Request {
         let body = String(decoding: try! JSONSerialization.data(withJSONObject: ["name": member]), as: UTF8.self)
         return Request(method: "PUT", path: "/proxies/\(enc(group))", body: body)
     }
-    /// Delay-test every node of a region's Auto urltest with its own URL (plain-HTTP gstatic).
-    public static func testRegion(_ region: Plan.Region, timeoutMs: Int = 5000) -> Request {
-        Request(method: "GET", path: "/group/\(enc(region.auto))/delay?timeout=\(timeoutMs)")
+    /// Delay-test every candidate of a urltest with its own URL.
+    public static func test(_ urltest: String, timeoutMs: Int = 5000) -> Request {
+        Request(method: "GET", path: "/group/\(enc(urltest))/delay?timeout=\(timeoutMs)")
     }
+    /// The selector choices for a probe result.
+    public static func apply(_ r: ProbeResult) -> [Request] { r.selections.map { select($0.group, $0.member) } }
 }

@@ -1,17 +1,24 @@
 import XCTest
 
 /// Walks every flow of the UI against a desktop sing-box running the real generated config (the simulator can't
-/// run the packet tunnel): switch International both ways, pin a node, back to Auto, switch AI, run the Test.
+/// run the packet tunnel): the network probe from the runner and its selector choices, a re-check, the Test (every
+/// group's exit), then a relaunch with a mocked China network (PROXY_MOCK_PROBE) flipping every group.
 /// Screenshots go to $SCREENSHOT_DIR (a host path; the workflow uploads them). Fails on a blank or stuck screen.
 final class ProxyUITests: XCTestCase {
     var app: XCUIApplication!
     var shots = 0
+    let env = ProcessInfo.processInfo.environment
 
     override func setUp() {
         continueAfterFailure = false
+        launch(probe: nil)
+    }
+
+    func launch(probe: String?) {
+        app?.terminate()
         app = XCUIApplication()
-        let env = ProcessInfo.processInfo.environment
         for k in ["PROXY_MOCK_CLASH", "PROXY_MOCK_SECRET", "PROXY_MOCK_HTTP_PROXY"] { app.launchEnvironment[k] = env[k] }
+        if let probe { app.launchEnvironment["PROXY_MOCK_PROBE"] = probe }
         app.launch()
     }
 
@@ -28,6 +35,8 @@ final class ProxyUITests: XCTestCase {
 
     func waitValue(_ id: String, _ value: String, timeout: TimeInterval = 15) {
         let e = el(id)
+        var n = 0
+        while !e.exists && n < 8 { app.swipeUp(); n += 1 }   // List rows below the fold don't exist yet
         let p = NSPredicate(format: "value == %@", value)
         XCTAssertEqual(XCTWaiter().wait(for: [expectation(for: p, evaluatedWith: e)], timeout: timeout), .completed,
                        "\(id) never became \(value)")
@@ -39,57 +48,61 @@ final class ProxyUITests: XCTestCase {
                        "\(id) never showed \(label)")
     }
 
+    func top() { for _ in 0..<5 { app.swipeDown() } }
+
     func scrollTo(_ e: XCUIElement) {
         var n = 0
         while !e.isHittable && n < 12 { app.swipeUp(); n += 1 }
     }
 
     func testEveryFlow() {
-        let up = el("switch-咕噜HK").waitForExistence(timeout: 30)
+        let up = el("test-button").waitForExistence(timeout: 30)
         if !up {
             shot("never-loaded")
-            print("UI tree when the switches never appeared:\n\(app.debugDescription)")
+            print("UI tree when the groups never appeared:\n\(app.debugDescription)")
         }
-        XCTAssertTrue(up, "the switches never appeared")
-        waitValue("switch-咕噜HK", "active")
+        XCTAssertTrue(up, "the groups never appeared")
+        // the runner is outside China: direct is invalid for China, valid for International and AI
+        waitValue("probe-China", "invalid", timeout: 30)
+        waitValue("probe-International", "valid")
+        waitValue("direct-China", "not allowed")
+        waitValue("direct-International", "allowed")
+        waitValue("direct-AI", "allowed")
+        top()
         shot("main")
 
-        el("switch-良心云HK").tap()
-        waitValue("switch-良心云HK", "active")
-        shot("international-liangxin")
+        let recheck = el("recheck-button")
+        scrollTo(recheck)
+        recheck.tap()
+        waitValue("direct-International", "allowed")
+        shot("rechecked")
 
-        let pin = el("pin-良心云HK")
-        scrollTo(pin)
-        pin.tap()
-        waitLabel("mode-良心云HK", "Pinned")
-        shot("liangxin-hk-pinned")
-        let auto = el("auto-良心云HK")
-        scrollTo(auto)
-        auto.tap()
-        waitLabel("mode-良心云HK", "Auto")
-
-        app.swipeDown(); app.swipeDown()
-        el("switch-咕噜HK").tap()
-        waitValue("switch-咕噜HK", "active")
-
-        let sg = el("switch-咕噜SG")
-        scrollTo(sg)
-        sg.tap()
-        waitValue("switch-咕噜SG", "active")
-        shot("ai-gulu")
-        el("switch-良心云SG").tap()
-        waitValue("switch-良心云SG", "active")
-
-        app.swipeDown(); app.swipeDown(); app.swipeDown()
+        top()
         el("test-button").tap()
         let line = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'AI exit'")).firstMatch
-        XCTAssertTrue(line.waitForExistence(timeout: 90), "the test never finished")
+        XCTAssertTrue(line.waitForExistence(timeout: 120), "the test never finished")
         XCTAssertFalse(line.label.contains("no answer"), line.label)
-        let intl = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'International exit: HK'")).firstMatch
-        XCTAssertTrue(intl.exists, "International did not exit in HK")
-        XCTAssertTrue(line.label.contains("exit (claude.ai): SG"), "AI did not exit in SG: \(line.label)")
+        XCTAssertFalse(line.label.contains("claude.ai): CN") || line.label.contains("claude.ai): HK"), "AI exited in CN/HK: \(line.label)")
+        let intl = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'International exit: '")).firstMatch
+        XCTAssertTrue(intl.exists)
+        XCTAssertFalse(intl.label.hasPrefix("International exit: CN") || intl.label.contains("no answer"), intl.label)
+        if env["PROXY_EXPECT_CN"] == "1" {
+            let cn = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'China exit: CN'")).firstMatch
+            XCTAssertTrue(cn.exists, "China did not exit in mainland China")
+        }
         shot("test-result")
         app.swipeUp()
-        shot("test-result-nodes")
+        shot("test-result-groups")
+        app.swipeUp()
+        shot("groups-ai")
+
+        // a mainland network with no split: direct is valid for China only
+        launch(probe: "China=1,International=0,AI=0")
+        XCTAssertTrue(el("test-button").waitForExistence(timeout: 30))
+        waitValue("direct-China", "allowed")
+        waitValue("direct-International", "not allowed")
+        waitValue("direct-AI", "not allowed")
+        top()
+        shot("mainland-network")
     }
 }

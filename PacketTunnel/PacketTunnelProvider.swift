@@ -1,6 +1,8 @@
 import Foundation
 import Libbox
+import Network
 import NetworkExtension
+import ProxyCore
 
 /// The packet tunnel: runs sing-box (libbox) with the config the app built from the two subscriptions.
 /// Adapted from sing-box-for-apple's ExtensionProvider (GPL-3.0), trimmed to what this app needs:
@@ -8,12 +10,19 @@ import NetworkExtension
 ///   extension's own container, so an on-demand/system restart (no options) uses the last one;
 /// - "$RULES" / "$DATA" in it become the bundled rule-set folder and the extension's data folder;
 /// - the app reaches sing-box's Clash API through `handleAppMessage` ("clash" requests), which this process
-///   forwards to the loopback controller, so no App Group or shared socket is needed.
+///   forwards to the loopback controller, so no App Group or shared socket is needed;
+/// - on start and on every network change it probes where this network's own exit lands (`NetworkProbe`; the
+///   extension's own requests bypass the tunnel) and flips each group's selector between `·nodes` and `·all`
+///   (nodes + direct) through the Clash API, so a network change never reloads sing-box.
 final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var commandServer: LibboxCommandServer?
     private lazy var platform = PlatformInterface(self)
     private var config: String?
     private var clash: (base: URL, secret: String)?
+    private var pathMonitor: NWPathMonitor?
+    private var probeTask: Task<Void, Never>?
+    private var lastPath: String?
+    private var probe: ProbeResult?
 
     private static let fm = FileManager.default
     private static var dataDir: URL {
@@ -49,6 +58,52 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         if let err { throw Self.error("command server: \(err.localizedDescription)") }
         try commandServer!.start()
         try startService(cfg)
+        await startPathMonitor()
+    }
+
+    // MARK: network detection
+
+    @MainActor private func startPathMonitor() {
+        let m = NWPathMonitor()
+        m.pathUpdateHandler = { [weak self] path in
+            // the tunnel's own interface changes the path too; key on the physical interfaces and their status
+            let key = "\(path.status)|" + path.availableInterfaces.filter { $0.type != .other }.map { "\($0.type):\($0.name)" }.joined(separator: ",")
+            Task { await self?.pathChanged(key) }
+        }
+        m.start(queue: DispatchQueue(label: "path"))
+        pathMonitor = m
+        reprobe(after: 0)
+    }
+
+    @MainActor private func pathChanged(_ key: String) {
+        guard key != lastPath else { return }
+        let first = lastPath == nil
+        lastPath = key
+        if !first { reprobe(after: 2) }   // debounce: Wi-Fi joins and DHCP settle
+    }
+
+    @MainActor private func reprobe(after seconds: UInt64) {
+        probeTask?.cancel()
+        probeTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: seconds * 1_000_000_000)
+            guard !Task.isCancelled, let self else { return }
+            let r = await NetworkProbe.run()
+            guard !Task.isCancelled else { return }
+            await self.apply(r)
+        }
+    }
+
+    @MainActor private func apply(_ r: ProbeResult) async {
+        probe = r
+        // connections opened on the old network's choice are cut by the selectors (interrupt_exist_connections)
+        for req in ClashCall.apply(r) {
+            for attempt in 0..<5 {
+                if (200..<300).contains(await clashCall(req).status) { break }
+                try? await Task.sleep(nanoseconds: UInt64(attempt + 1) * 500_000_000)   // sing-box still starting
+            }
+        }
+        // no probe answered at all: the network was probably still coming up, so look again shortly
+        if r.verdicts.values.allSatisfy({ $0.exit == nil }) { reprobe(after: 10) }
     }
 
     private func startService(_ cfg: String) throws {
@@ -64,6 +119,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     override func stopTunnel(with reason: NEProviderStopReason) async {
+        await MainActor.run { self.pathMonitor?.cancel(); self.pathMonitor = nil; self.probeTask?.cancel() }
         try? commandServer?.closeService()
         platform.reset()
         try? await Task.sleep(nanoseconds: 100_000_000)
@@ -74,10 +130,11 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     override func sleep() async { commandServer?.pause() }
     override func wake() { commandServer?.wake() }
 
-    // MARK: app messages: {"clash": {method, path, body}} -> {status, body};  {"reload": "<config>"} -> {status}
+    // MARK: app messages: {"clash": {method, path, body}} -> {status, body};  {"reload": "<config>"} -> {status};
+    //                    {"probe": false} -> the last probe (ProbeResult JSON) / {"probe": true} -> probe now
 
     override func handleAppMessage(_ data: Data) async -> Data? {
-        struct Message: Decodable { let clash: ClashRequest?; let reload: String? }
+        struct Message: Decodable { let clash: ClashRequest?; let reload: String?; let probe: Bool? }
         struct ClashRequest: Decodable { let method: String; let path: String; let body: String? }
         struct Reply: Encodable { let status: Int; let body: String }
         func reply(_ s: Int, _ b: String) -> Data? { try? JSONEncoder().encode(Reply(status: s, body: b)) }
@@ -89,11 +146,26 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 reasserting = true
                 defer { reasserting = false }
                 try startService(cfg)
+                await reprobe(after: 1)   // the new sing-box starts from the selectors' defaults
                 return reply(200, "reloaded")
             } catch { return reply(500, error.localizedDescription) }
         }
-        guard let r = msg.clash, let clash, let url = URL(string: r.path, relativeTo: clash.base) else {
-            return reply(503, "sing-box not running")
+        if let now = msg.probe {
+            if now {
+                let r = await NetworkProbe.run()
+                await apply(r)
+            }
+            guard let p = await MainActor.run(body: { self.probe }), let d = try? JSONEncoder().encode(p) else { return reply(204, "") }
+            return reply(200, String(decoding: d, as: UTF8.self))
+        }
+        guard let r = msg.clash else { return reply(400, "bad message") }
+        let resp = await clashCall(ClashCall.Request(method: r.method, path: r.path, body: r.body))
+        return reply(resp.status, resp.body)
+    }
+
+    private func clashCall(_ r: ClashCall.Request) async -> ClashCall.Response {
+        guard let clash, let url = URL(string: r.path, relativeTo: clash.base) else {
+            return .init(status: 503, body: "sing-box not running")
         }
         var req = URLRequest(url: url, timeoutInterval: 30)
         req.httpMethod = r.method
@@ -101,8 +173,8 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         if let b = r.body { req.httpBody = Data(b.utf8); req.setValue("application/json", forHTTPHeaderField: "Content-Type") }
         do {
             let (body, resp) = try await URLSession.shared.data(for: req)
-            return reply((resp as? HTTPURLResponse)?.statusCode ?? 0, String(decoding: body, as: UTF8.self))
-        } catch { return reply(502, error.localizedDescription) }
+            return .init(status: (resp as? HTTPURLResponse)?.statusCode ?? 0, body: String(decoding: body, as: UTF8.self))
+        } catch { return .init(status: 502, body: error.localizedDescription) }
     }
 
     private static func clashEndpoint(_ cfg: String) -> (URL, String)? {

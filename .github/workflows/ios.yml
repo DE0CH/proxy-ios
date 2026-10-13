@@ -30,6 +30,7 @@ jobs:
       GULU_SUB_URL: ${{ secrets.GULU_SUB_URL }}
       LIANGXIN_SUB_SNAPSHOT: ${{ secrets.LIANGXIN_SUB_SNAPSHOT }}
       GULU_SUB_SNAPSHOT: ${{ secrets.GULU_SUB_SNAPSHOT }}
+      CN_NODE_JSON: ${{ secrets.CN_NODE_JSON }}
     steps:
       - uses: actions/checkout@v4
       - name: Select the newest Xcode

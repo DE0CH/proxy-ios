@@ -1,41 +1,65 @@
 import Foundation
 
-/// The routing plan, the same as openwrt-main's OpenClash split:
-///   China (geosite-cn / geoip-cn) and private ranges -> direct
-///   AI (geosite category-ai-!cn)                      -> selector "AI"   = 良心云SG | 咕噜SG
-///   everything else                                    -> selector "国际" = 咕噜HK | 良心云HK
-/// Each region group is a selector of [its Auto urltest, every node], so a node is either picked automatically
-/// (Auto: lowest delay, kept unless another is better by `tolerance`) or pinned by selecting it.
+/// The routing plan: three groups, each "the fastest valid candidate", where going direct is one candidate like any
+/// node and is valid only when this network's own exit already lands in the right place:
+///   China (geosite-cn / geoip-cn)       candidates: the China node(s), direct   valid: exits in mainland China
+///   AI (geosite category-ai-!cn)        candidates: airport nodes, direct       valid: exits outside mainland China and HK
+///   International (everything else)     candidates: airport nodes, direct       valid: exits outside mainland China
+/// Node validity is known from the node's name (region); direct's validity is measured by `NetworkProbe` on every
+/// network change. Each group is a selector of two urltests, `<group>·nodes` and `<group>·all` (= nodes + direct);
+/// the probe's verdict picks one, so a network change never reloads sing-box.
 public enum Plan {
-    public static let intl = "国际"
+    public static let china = "China"
+    public static let intl = "International"
     public static let ai = "AI"
-    public static let autoSuffix = "·Auto"
+    public static let nodesSuffix = "·nodes"
+    public static let allSuffix = "·all"
+    public static let directPrefix = "direct·"
 
-    public struct Region: Hashable {
-        public let group: String      // selector tag, e.g. "咕噜HK"
-        public let label: String      // shown in the UI, e.g. "咕噜云 HK"
-        public let airport: Airport
-        public let match: String      // node-name regex inside that airport
-        public var auto: String { group + Plan.autoSuffix }
+    public struct Group: Hashable {
+        public let tag: String
+        public let title: String
+        public let testURL: String
+        public var nodesTest: String { tag + Plan.nodesSuffix }
+        public var allTest: String { tag + Plan.allSuffix }
+        /// The direct outbound this group races (one per group, so each keeps its own delay history and test URL).
+        public var direct: String { Plan.directPrefix + tag }
     }
 
-    public enum Airport: String, CaseIterable {
-        case liangxin, gulu
-        /// Prefix put in front of every node tag so the two airports' tags never clash.
-        public var prefix: String { self == .liangxin ? "良心云 " : "咕噜 " }
-    }
-
-    public static let guluHK = Region(group: "咕噜HK", label: "咕噜云 HK", airport: .gulu, match: "香港.*x3|x3.*香港")
-    public static let liangxinHK = Region(group: "良心云HK", label: "良心云 HK", airport: .liangxin, match: "香港")
-    public static let liangxinSG = Region(group: "良心云SG", label: "良心云 SG", airport: .liangxin, match: "新加坡")
-    public static let guluSG = Region(group: "咕噜SG", label: "咕噜云 SG", airport: .gulu, match: "新加坡.*x3|x3.*新加坡")
-
-    /// The two switches and their choices, in display order (the first choice is the default).
-    public static let switches: [(tag: String, title: String, choices: [Region])] = [
-        (intl, "International", [guluHK, liangxinHK]),
-        (ai, "AI apps", [liangxinSG, guluSG]),
+    /// Display order. China's delay is measured to a mainland URL; the others to gstatic (unreachable from a
+    /// mainland exit, so an invalid candidate also measures as a timeout there).
+    public static let groups: [Group] = [
+        Group(tag: china, title: "China", testURL: "http://connect.rom.miui.com/generate_204"),
+        Group(tag: intl, title: "International", testURL: "http://www.gstatic.com/generate_204"),
+        Group(tag: ai, title: "AI", testURL: "http://www.gstatic.com/generate_204"),
     ]
-    public static var regions: [Region] { switches.flatMap { $0.choices } }
+    public static func group(_ tag: String) -> Group? { groups.first { $0.tag == tag } }
+
+    public enum Source: String, CaseIterable {
+        case liangxin, gulu, cn
+        /// Prefix put in front of every node tag so the sources' tags never clash.
+        public var prefix: String {
+            switch self {
+            case .liangxin: return "良心云 "
+            case .gulu: return "咕噜 "
+            case .cn: return "回国 "
+            }
+        }
+        public var name: String {
+            switch self {
+            case .liangxin: return "良心云"
+            case .gulu: return "咕噜云"
+            case .cn: return "China node"
+            }
+        }
+        /// Nodes of this source that are used at all (咕噜云: only its x3 lines, as on the router).
+        var keep: String? { self == .gulu ? "x3" : nil }
+    }
+
+    /// Node names that exit in mainland China (an airport's 回国 nodes); never International or AI candidates.
+    static let mainland = "回国|大陆|内地|🇨🇳|中国(?!香港|澳门|澳門|台湾|台灣)"
+    /// Node names AI services refuse besides the mainland: Hong Kong and Macau.
+    static let aiRefused = "香港|🇭🇰|(?i:\\bHK\\b|hong ?kong)|澳门|澳門|🇲🇴|(?i:macau|macao)"
 
     /// Tags in a subscription that are labels, not servers.
     static let infoTags = try! NSRegularExpression(pattern: "剩余|套餐|到期|官网|流量|重置")
@@ -54,42 +78,42 @@ public struct BuildOptions {
     public var dataDir: String = "$DATA"        // the extension replaces it with its container folder
     public var clashController = "127.0.0.1:9090"
     public var clashSecret: String
-    public var urlTestURL = "http://www.gstatic.com/generate_204"
     public var urlTestInterval = "1m"
-    public var urlTestTolerance = 150
+    public var urlTestTolerance = 50
     public var logLevel = "warn"
     public init(clashSecret: String) { self.clashSecret = clashSecret }
 }
 
 public struct BuildResult {
     public let json: String
-    public let regions: [Plan.Region: [String]]   // region -> node tags (as in the config)
+    public let groups: [String: [String]]   // group tag -> node candidates (direct not included)
     public let warnings: [String]
 }
 
 public enum ConfigError: Error, CustomStringConvertible {
-    case badSubscription(Plan.Airport, String)
+    case badSubscription(Plan.Source, String)
     case noNodes
     public var description: String {
         switch self {
-        case let .badSubscription(a, why): return "\(a.rawValue) subscription: \(why)"
-        case .noNodes: return "no usable HK/SG nodes in either subscription"
+        case let .badSubscription(s, why): return "\(s.name): \(why)"
+        case .noNodes: return "no usable nodes in any subscription"
         }
     }
 }
 
 public enum ConfigBuilder {
     /// Proxy outbounds of a sing-box subscription (the JSON the airports serve to UA "SFI/…").
-    public static func nodes(from data: Data, airport: Plan.Airport) throws -> [[String: Any]] {
+    public static func nodes(from data: Data, source: Plan.Source) throws -> [[String: Any]] {
         guard let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            throw ConfigError.badSubscription(airport, "not a JSON object")
+            throw ConfigError.badSubscription(source, "not a JSON object")
         }
         guard let outs = obj["outbounds"] as? [[String: Any]] else {
-            throw ConfigError.badSubscription(airport, "no outbounds")
+            throw ConfigError.badSubscription(source, "no outbounds")
         }
         return outs.filter { o in
             guard let type = o["type"] as? String, Plan.proxyTypes.contains(type),
                   let tag = o["tag"] as? String, o["server"] != nil else { return false }
+            if let k = source.keep, !tag.contains(k) { return false }
             return Plan.infoTags.firstMatch(in: tag, range: NSRange(tag.startIndex..., in: tag)) == nil
         }
     }
@@ -98,53 +122,52 @@ public enum ConfigBuilder {
         (try? NSRegularExpression(pattern: pattern))?.firstMatch(in: tag, range: NSRange(tag.startIndex..., in: tag)) != nil
     }
 
-    /// Builds the full config. `subscriptions` maps each airport to its subscription JSON; a missing airport just
-    /// leaves its regions out (the switches then offer only what exists).
-    public static func build(subscriptions: [Plan.Airport: Data], options: BuildOptions) throws -> BuildResult {
+    /// Which groups a node (by its name in the subscription) is a candidate for.
+    static func groups(of raw: String, source: Plan.Source) -> [String] {
+        if source == .cn || matches(raw, Plan.mainland) { return [Plan.china] }
+        return matches(raw, Plan.aiRefused) ? [Plan.intl] : [Plan.intl, Plan.ai]
+    }
+
+    /// Builds the full config. `subscriptions` maps each source to its sing-box JSON; a missing source just leaves
+    /// its nodes out. A group with no node candidates races direct alone.
+    public static func build(subscriptions: [Plan.Source: Data], options: BuildOptions) throws -> BuildResult {
         var warnings: [String] = []
-        var regionNodes: [Plan.Region: [String]] = [:]
+        var groupNodes: [String: [String]] = [:]
         var nodeOutbounds: [[String: Any]] = []
-        var seen = Set<String>()
-        for airport in Plan.Airport.allCases {
-            guard let data = subscriptions[airport] else { warnings.append("\(airport.rawValue): no subscription"); continue }
+        for source in Plan.Source.allCases {
+            guard let data = subscriptions[source] else { warnings.append("\(source.name): no subscription"); continue }
             let nodes: [[String: Any]]
-            do { nodes = try ConfigBuilder.nodes(from: data, airport: airport) } catch { warnings.append("\(error)"); continue }
-            for region in Plan.regions where region.airport == airport {
-                var tags: [String] = []
-                for var n in nodes {
-                    let raw = n["tag"] as! String
-                    guard matches(raw, region.match) else { continue }
-                    let tag = airport.prefix + raw
-                    tags.append(tag)
-                    if seen.insert(tag).inserted {
-                        n["tag"] = tag
-                        n.removeValue(forKey: "domain_resolver")   // the airports name their own DNS server; ours is "cn"
-                        n.removeValue(forKey: "detour")
-                        nodeOutbounds.append(n)
-                    }
-                }
-                if tags.isEmpty { warnings.append("\(region.group): no nodes") } else { regionNodes[region] = tags }
+            do { nodes = try ConfigBuilder.nodes(from: data, source: source) } catch { warnings.append("\(error)"); continue }
+            for var n in nodes {
+                let raw = n["tag"] as! String
+                let tag = source.prefix + raw
+                guard !nodeOutbounds.contains(where: { $0["tag"] as? String == tag }) else { continue }
+                n["tag"] = tag
+                n.removeValue(forKey: "domain_resolver")   // the airports name their own DNS server; ours is "local"
+                n.removeValue(forKey: "detour")
+                nodeOutbounds.append(n)
+                for g in groups(of: raw, source: source) { groupNodes[g, default: []].append(tag) }
             }
         }
-        guard !regionNodes.isEmpty else { throw ConfigError.noNodes }
+        guard !nodeOutbounds.isEmpty else { throw ConfigError.noNodes }
+        for g in Plan.groups where groupNodes[g.tag] == nil { warnings.append("\(g.title): no nodes, direct only") }
 
         var outbounds: [[String: Any]] = []
-        for sw in Plan.switches {
-            let choices = sw.choices.filter { regionNodes[$0] != nil }.map(\.group)
-            // a switch whose regions are all missing falls back to the other switch's groups, never to direct
-            let members = choices.isEmpty ? Plan.regions.filter { regionNodes[$0] != nil }.map(\.group) : choices
-            outbounds.append(["type": "selector", "tag": sw.tag, "outbounds": members, "default": members[0],
-                              "interrupt_exist_connections": true])
-        }
-        for region in Plan.regions {
-            guard let tags = regionNodes[region] else { continue }
-            outbounds.append(["type": "selector", "tag": region.group, "outbounds": [region.auto] + tags,
-                              "default": region.auto, "interrupt_exist_connections": true])
-            outbounds.append(["type": "urltest", "tag": region.auto, "outbounds": tags, "url": options.urlTestURL,
-                              "interval": options.urlTestInterval, "tolerance": options.urlTestTolerance])
+        for g in Plan.groups {
+            let nodes = groupNodes[g.tag] ?? []
+            // without nodes, "·nodes" would be empty: both tests then race direct alone
+            let nodesMembers = nodes.isEmpty ? [g.direct] : nodes
+            outbounds.append(["type": "selector", "tag": g.tag, "outbounds": [g.nodesTest, g.allTest],
+                              "default": nodes.isEmpty ? g.allTest : g.nodesTest, "interrupt_exist_connections": true])
+            for (tag, members) in [(g.nodesTest, nodesMembers), (g.allTest, nodes + [g.direct])] {
+                outbounds.append(["type": "urltest", "tag": tag, "outbounds": members, "url": g.testURL,
+                                  "interval": options.urlTestInterval, "tolerance": options.urlTestTolerance,
+                                  "interrupt_exist_connections": true])
+            }
         }
         outbounds += nodeOutbounds
         outbounds.append(["type": "direct", "tag": "direct"])
+        for g in Plan.groups { outbounds.append(["type": "direct", "tag": g.direct]) }
 
         let inbound: [String: Any]
         switch options.inbound {
@@ -162,7 +185,10 @@ public enum ConfigBuilder {
             "log": ["level": options.logLevel, "timestamp": true],
             "dns": [
                 "servers": [
-                    ["type": "udp", "tag": "cn", "server": "223.5.5.5"],
+                    // node servers resolve with the network's own resolver, so no DNS server depends on a group
+                    ["type": "local", "tag": "local"],
+                    // China names resolve from China (through the China group: direct where that exits in China)
+                    ["type": "udp", "tag": "cn", "server": "223.5.5.5", "detour": Plan.china],
                     ["type": "https", "tag": "remote", "server": "1.1.1.1", "detour": Plan.intl],
                 ],
                 "rules": [["rule_set": ["geosite-cn"], "server": "cn"]],
@@ -177,12 +203,12 @@ public enum ConfigBuilder {
                     ["protocol": "dns", "action": "hijack-dns"],
                     ["ip_is_private": true, "outbound": "direct"],
                     ["rule_set": ["geosite-ai"], "outbound": Plan.ai],
-                    ["rule_set": ["geosite-cn", "geoip-cn"], "outbound": "direct"],
+                    ["rule_set": ["geosite-cn", "geoip-cn"], "outbound": Plan.china],
                 ],
                 "rule_set": ruleSets,
                 "final": Plan.intl,
                 "auto_detect_interface": true,
-                "default_domain_resolver": ["server": "cn"],
+                "default_domain_resolver": ["server": "local"],
             ] as [String: Any],
             "experimental": [
                 "cache_file": ["enabled": true, "path": "\(options.dataDir)/cache.db"],
@@ -190,6 +216,6 @@ public enum ConfigBuilder {
             ],
         ]
         let data = try JSONSerialization.data(withJSONObject: config, options: [.sortedKeys])
-        return BuildResult(json: String(decoding: data, as: UTF8.self), regions: regionNodes, warnings: warnings)
+        return BuildResult(json: String(decoding: data, as: UTF8.self), groups: groupNodes, warnings: warnings)
     }
 }

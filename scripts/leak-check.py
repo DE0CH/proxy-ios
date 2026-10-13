@@ -3,7 +3,7 @@
 
 Patterns are built at runtime, never printed: the subscription URLs from env (LIANGXIN_SUB_URL, GULU_SUB_URL —
 whole URL, host, token-like path segments and query values) and, from the bundled snapshots in
-App/Bundled/Subscriptions/*.json (outbounds/endpoints only), every server host and its resolved IPs, uuid, password, Reality public key /
+App/Bundled/Subscriptions/*.json (liangxin, gulu, and cn = the China node) plus env CN_NODE_JSON (outbounds/endpoints only), every server host and its resolved IPs, uuid, password, Reality public key /
 short id, certificate pin and private key. Files are searched as bytes (screenshots, logs, anything).
 Prints only how many files were checked and the names of files with hits. Usage: leak-check.py PATH...
 """
@@ -56,9 +56,10 @@ def walk(o):
         for x in o:
             walk(x)
 
-for f in glob.glob("App/Bundled/Subscriptions/*.json"):
+cn = os.environ.get("CN_NODE_JSON", "").strip()
+for f in glob.glob("App/Bundled/Subscriptions/*.json") + (["$CN_NODE_JSON"] if cn else []):
     try:
-        d = json.load(open(f))
+        d = json.loads(cn) if f == "$CN_NODE_JSON" else json.load(open(f))
         # only the servers and their credentials: the profiles' dns/route sections name public resolvers
         # (1.1.1.1, 223.5.5.5) and tags ("remote") that legitimately appear elsewhere
         walk(d.get("outbounds", []))

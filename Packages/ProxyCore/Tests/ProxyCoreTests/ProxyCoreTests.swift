@@ -34,6 +34,13 @@ final class ConfigBuilderTests: XCTestCase {
         XCTAssertTrue(r.warnings.isEmpty, "\(r.warnings)")
     }
 
+    func testTaiwanWithAChineseFlagIsNotMainland() {
+        XCTAssertEqual(ConfigBuilder.groups(of: "🇨🇳台湾专线01|BGP|流媒体", source: .liangxin), [Plan.intl, Plan.ai])
+        XCTAssertEqual(ConfigBuilder.groups(of: "🇨🇳中国香港01", source: .liangxin), [Plan.intl])
+        XCTAssertEqual(ConfigBuilder.groups(of: "🇨🇳回国 上海|x1", source: .gulu), [Plan.china])
+        XCTAssertEqual(ConfigBuilder.groups(of: "广州 Hysteria2", source: .cn), [Plan.china])
+    }
+
     func testEachGroupIsASelectorOfNodesAndNodesPlusDirect() throws {
         let (r, c) = try build(all())
         for g in Plan.groups {

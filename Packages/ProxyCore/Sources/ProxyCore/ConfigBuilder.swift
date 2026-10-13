@@ -57,7 +57,9 @@ public enum Plan {
     }
 
     /// Node names that exit in mainland China (an airport's 回国 nodes); never International or AI candidates.
-    static let mainland = "回国|大陆|内地|🇨🇳|中国(?!香港|澳门|澳門|台湾|台灣)"
+    /// A name that also says Taiwan/HK/Macau is not mainland: airports put the 🇨🇳 flag on Taiwan lines.
+    static let mainland = "回国|大陆|内地|🇨🇳|中国"
+    static let notMainland = "台湾|台灣|🇹🇼|(?i:taiwan|\\bTW\\b)|香港|🇭🇰|(?i:hong ?kong|\\bHK\\b)|澳门|澳門|🇲🇴|(?i:macau|macao)"
     /// Node names AI services refuse besides the mainland: Hong Kong and Macau.
     static let aiRefused = "香港|🇭🇰|(?i:\\bHK\\b|hong ?kong)|澳门|澳門|🇲🇴|(?i:macau|macao)"
 
@@ -124,7 +126,7 @@ public enum ConfigBuilder {
 
     /// Which groups a node (by its name in the subscription) is a candidate for.
     static func groups(of raw: String, source: Plan.Source) -> [String] {
-        if source == .cn || matches(raw, Plan.mainland) { return [Plan.china] }
+        if source == .cn || (matches(raw, Plan.mainland) && !matches(raw, Plan.notMainland)) { return [Plan.china] }
         return matches(raw, Plan.aiRefused) ? [Plan.intl] : [Plan.intl, Plan.ai]
     }
 

@@ -87,6 +87,8 @@ final class ProxyUITests: XCTestCase {
 
     func el(_ id: String) -> XCUIElement { app.descendants(matching: .any)[id] }
 
+    func text(_ e: XCUIElement) -> String { e.label.isEmpty ? (e.value as? String ?? "") : e.label }
+
     func waitValue(_ id: String, _ value: String, timeout: TimeInterval = 15) {
         let e = el(id)
         var n = 0
@@ -134,17 +136,15 @@ final class ProxyUITests: XCTestCase {
 
         top()
         press(el("test-button"))
-        let line = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'AI exit'")).firstMatch
+        // test-line-1…3: China / International / AI exit (a Text's content is its label on iOS, its value on the Mac)
+        let line = el("test-line-3")
         XCTAssertTrue(line.waitForExistence(timeout: 120), "the test never finished")
-        XCTAssertFalse(line.label.contains("no answer"), line.label)
-        XCTAssertFalse(line.label.contains("claude.ai): CN") || line.label.contains("claude.ai): HK"), "AI exited in CN/HK: \(line.label)")
-        let intl = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'International exit: '")).firstMatch
-        XCTAssertTrue(intl.exists)
-        XCTAssertFalse(intl.label.hasPrefix("International exit: CN") || intl.label.contains("no answer"), intl.label)
-        if env["PROXY_EXPECT_CN"] == "1" {
-            let cn = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'China exit: CN'")).firstMatch
-            XCTAssertTrue(cn.exists, "China did not exit in mainland China")
-        }
+        let ai = text(line), intl = text(el("test-line-2")), cn = text(el("test-line-1"))
+        XCTAssertTrue(ai.hasPrefix("AI exit"), ai)
+        XCTAssertFalse(ai.contains("no answer"), ai)
+        XCTAssertFalse(ai.contains("claude.ai): CN") || ai.contains("claude.ai): HK"), "AI exited in CN/HK: \(ai)")
+        XCTAssertFalse(intl.hasPrefix("International exit: CN") || intl.contains("no answer"), intl)
+        if env["PROXY_EXPECT_CN"] == "1" { XCTAssertTrue(cn.hasPrefix("China exit: CN"), "China did not exit in mainland China") }
         // the real check: every group's candidate in use loads a real page (or the group switched to one that does)
         waitValue("health-International", oneOf: ["passed", "pinned"])
         waitValue("health-AI", oneOf: ["passed", "pinned"])

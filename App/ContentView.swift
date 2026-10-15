@@ -94,8 +94,9 @@ struct ContentView: View {
                         }
                         .disabled(tunnel.testing)
                         .accessibilityIdentifier("test-button")
-                        ForEach(tunnel.testLines, id: \.self) { line in
+                        ForEach(Array(tunnel.testLines.enumerated()), id: \.offset) { i, line in
                             Text(line).font(.footnote.monospaced()).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("test-line-\(i)")
                         }
                     }
                     NetworkSection()

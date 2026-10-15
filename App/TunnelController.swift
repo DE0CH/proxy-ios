@@ -272,7 +272,8 @@ final class TunnelController: ObservableObject {
             }
         }
         await refresh()
-        await checkNow()
+        // the real check runs alongside the exit lines (a round that has to fail over can take a minute)
+        async let check: Void = checkNow()
         let start = Date()
         async let cn = exitOf("https://myip.ipip.net", china: true)
         async let intl = exitOf("https://www.cloudflare.com/cdn-cgi/trace")
@@ -281,6 +282,7 @@ final class TunnelController: ObservableObject {
         let fmt = DateFormatter()
         fmt.dateFormat = "HH:mm:ss"
         testLines = [fmt.string(from: start), "China exit: \(c)", "International exit: \(i)", "AI exit (claude.ai): \(a)"]
+        await check
     }
 
     /// Where a request through the tunnel exits: the country (and mainland region) only, never the IP.

@@ -56,5 +56,26 @@ for rt in reversed(rts):
 fi
 # printed: build errors and test verdicts only (node names at most, no subscription values)
 grep -E "error:|\*\* TEST|Test Case .*(passed|failed)" "$PRIVATE/xcodebuild-test.log" | sed -E 's#/Users/[^ ]*/proxy-ios/##' | head -40 || true
+# the built app's identity (not secret): catches an unexpanded Info.plist
+for a in $(find "$HOME/Library/Developer/Xcode/DerivedData" -path '*Release*' -name Proxy.app -maxdepth 6 2>/dev/null); do
+  pl="$a/Info.plist"; [ -f "$pl" ] || pl="$a/Contents/Info.plist"
+  echo "built ${a##*/Build/Products/}: $(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$pl" 2>/dev/null)"
+done
+# screenshots: the test's PNG attachments from the result bundle (the runner can't always write to $SCREENSHOT_DIR)
+xcrun xcresulttool export attachments --path "$PRIVATE/ui.xcresult" --output-path "$PRIVATE/attachments" >/dev/null 2>&1 || true
+python3 - "$PRIVATE/attachments" "$OUT/screens" <<'PY' || true
+import json, os, shutil, sys
+src, dst = sys.argv[1:]
+try: m = json.load(open(os.path.join(src, "manifest.json")))
+except Exception: sys.exit()
+n = 0
+for t in m:
+    for a in t.get("attachments", []):
+        f = a.get("exportedFileName", "")
+        if f.endswith(".png"):
+            n += 1; name = a.get("suggestedHumanReadableName", f).split("_")[0]
+            shutil.copy(os.path.join(src, f), os.path.join(dst, "%02d-%s.png" % (n, name)))
+print(f"screenshots from the result bundle: {n}")
+PY
 rm -f "$OUT/screens/"*.txt   # view-hierarchy dumps can include node names and test lines: keep them private
 grep -q "\*\* TEST SUCCEEDED \*\*" "$PRIVATE/xcodebuild-test.log"

@@ -69,8 +69,7 @@ final class ProxyUITests: XCTestCase {
 
     func waitValue(_ id: String, oneOf values: [String], timeout: TimeInterval = 60) {
         let e = el(id)
-        var n = 0
-        while !e.exists && n < 8 { scrollDown(); n += 1 }
+        find(e)
         let p = NSPredicate(format: "value IN %@", values)
         XCTAssertEqual(XCTWaiter().wait(for: [expectation(for: p, evaluatedWith: e)], timeout: timeout), .completed,
                        "\(id) never became one of \(values) (is \(e.value ?? "nil"))")
@@ -91,8 +90,7 @@ final class ProxyUITests: XCTestCase {
 
     func waitValue(_ id: String, _ value: String, timeout: TimeInterval = 15) {
         let e = el(id)
-        var n = 0
-        while !e.exists && n < 8 { scrollDown(); n += 1 }   // List rows below the fold don't exist yet
+        find(e)
         let p = NSPredicate(format: "value == %@", value)
         XCTAssertEqual(XCTWaiter().wait(for: [expectation(for: p, evaluatedWith: e)], timeout: timeout), .completed,
                        "\(id) never became \(value)")
@@ -102,6 +100,14 @@ final class ProxyUITests: XCTestCase {
         let p = NSPredicate(format: "label == %@", label)
         XCTAssertEqual(XCTWaiter().wait(for: [expectation(for: p, evaluatedWith: el(id))], timeout: timeout), .completed,
                        "\(id) never showed \(label)")
+    }
+
+    /// List rows off screen don't exist yet: from the top, scroll down until `e` exists.
+    func find(_ e: XCUIElement) {
+        guard !e.exists else { return }
+        top()
+        var n = 0
+        while !e.exists && n < 15 { scrollDown(); n += 1 }
     }
 
     /// Back to the top: scroll up until the VPN toggle can be hit (the list grows with every group's lines).

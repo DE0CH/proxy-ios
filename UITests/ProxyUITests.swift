@@ -104,7 +104,12 @@ final class ProxyUITests: XCTestCase {
                        "\(id) never showed \(label)")
     }
 
-    func top() { for _ in 0..<5 { scrollUp() } }
+    /// Back to the top: scroll up until the VPN toggle can be hit (the list grows with every group's lines).
+    func top() {
+        var n = 0
+        while !(el("vpn-toggle").exists && el("vpn-toggle").isHittable) && n < 20 { scrollUp(); n += 1 }
+        scrollUp()
+    }
 
     func scrollTo(_ e: XCUIElement) {
         var n = 0

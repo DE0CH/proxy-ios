@@ -3,8 +3,9 @@
 
 Patterns are built at runtime, never printed: the subscription URLs from env (LIANGXIN_SUB_URL, GULU_SUB_URL —
 whole URL, host, token-like path segments and query values) and, from the bundled snapshots in
-App/Bundled/Subscriptions/*.json (liangxin, gulu, and cn = the China node) plus env CN_NODE_JSON (outbounds/endpoints only), every server host and its resolved IPs, uuid, password, Reality public key /
-short id, certificate pin and private key. Files are searched as bytes (screenshots, logs, anything).
+build/subs/*.json (liangxin, gulu, and cn = the China node) plus env CN_NODE_JSON (outbounds/endpoints only), every server host and its resolved IPs, uuid, password, Reality public key /
+short id, certificate pin and private key; and the app's unlock password (env PROXY_UNLOCK_PASSWORD), which the replica
+types into the unlock screen. Files are searched as bytes (screenshots, logs, anything).
 Prints only how many files were checked and the names of files with hits. Usage: leak-check.py PATH...
 """
 import glob, json, os, socket, sys, urllib.parse
@@ -56,8 +57,10 @@ def walk(o):
         for x in o:
             walk(x)
 
+add(os.environ.get("PROXY_UNLOCK_PASSWORD", ""))
+
 cn = os.environ.get("CN_NODE_JSON", "").strip()
-for f in glob.glob("App/Bundled/Subscriptions/*.json") + (["$CN_NODE_JSON"] if cn else []):
+for f in glob.glob("build/subs/*.json") + (["$CN_NODE_JSON"] if cn else []):
     try:
         d = json.loads(cn) if f == "$CN_NODE_JSON" else json.load(open(f))
         # only the servers and their credentials: the profiles' dns/route sections name public resolvers

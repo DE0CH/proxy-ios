@@ -2,7 +2,7 @@
 name: Proxy
 options:
   bundleIdPrefix: dev.de0ch
-  deploymentTarget: { iOS: "16.0" }
+  deploymentTarget: { iOS: "16.0", macOS: "13.0" }
   createIntermediateGroups: true
 settings:
   base:
@@ -20,9 +20,8 @@ targets:
     platform: iOS
     sources:
       - path: App
-        excludes: ["Bundled/**"]
-      - path: App/Bundled/Subscriptions
-        type: folder
+        excludes: ["Bundled/**", "*-macOS.entitlements"]
+      - path: App/Bundled/sealed.json
         buildPhase: resources
     dependencies:
       - package: ProxyCore
@@ -85,9 +84,98 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.de0ch.proxy.uitests
         TEST_TARGET_NAME: Proxy
         GENERATE_INFOPLIST_FILE: YES
+  # The Mac app: the same SwiftUI app, signed with Developer ID (outside the App Store), so its packet tunnel is a
+  # system extension in Contents/Library/SystemExtensions (an app extension VPN needs the App Store).
+  ProxyMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+        excludes: ["Bundled/**", "*.entitlements"]
+      - path: App/Bundled/sealed.json
+        buildPhase: resources
+    dependencies:
+      - package: ProxyCore
+      - target: PacketTunnelMac
+    settings:
+      base:
+        PRODUCT_NAME: Proxy
+        PRODUCT_BUNDLE_IDENTIFIER: dev.de0ch.proxy
+        CODE_SIGN_ENTITLEMENTS: App/App-macOS.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Developer ID Application"
+        PROVISIONING_PROFILE_SPECIFIER: "Proxy Mac Developer ID"
+    info:
+      path: App/Info-macOS.plist
+      properties:
+        CFBundleDisplayName: Proxy
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSApplicationCategoryType: public.app-category.utilities
+        LSMinimumSystemVersion: "13.0"
+        NSAppTransportSecurity: { NSAllowsLocalNetworking: true }
+  PacketTunnelMac:
+    type: system-extension
+    platform: macOS
+    sources:
+      - path: PacketTunnel
+        excludes: ["Rules/**", "*.entitlements"]
+      - path: PacketTunnel/Rules
+        type: folder
+        buildPhase: resources
+      - path: PacketTunnelMac
+        excludes: ["*.entitlements"]
+    dependencies:
+      - package: ProxyCore
+      - framework: Libbox.xcframework
+        embed: false
+      - sdk: libresolv.tbd
+    settings:
+      base:
+        PRODUCT_NAME: dev.de0ch.proxy.tunnel
+        PRODUCT_MODULE_NAME: PacketTunnel
+        PRODUCT_BUNDLE_IDENTIFIER: dev.de0ch.proxy.tunnel
+        CODE_SIGN_ENTITLEMENTS: PacketTunnelMac/PacketTunnel-macOS.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        OTHER_LDFLAGS: ["-ObjC"]
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Developer ID Application"
+        PROVISIONING_PROFILE_SPECIFIER: "Proxy Tunnel Mac Developer ID"
+    info:
+      path: PacketTunnelMac/Info.plist
+      properties:
+        CFBundleDisplayName: Proxy Tunnel
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        CFBundlePackageType: SYSX
+        LSMinimumSystemVersion: "13.0"
+        NetworkExtension:
+          NEMachServiceName: S64YL394S3.dev.de0ch.proxy.tunnel
+          NEProviderClasses:
+            com.apple.networkextension.packet-tunnel: "$(PRODUCT_MODULE_NAME).PacketTunnelProvider"
+  ProxyMacUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [UITests]
+    dependencies:
+      - target: ProxyMac
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.de0ch.proxy.macuitests
+        TEST_TARGET_NAME: ProxyMac
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
 schemes:
   Proxy:
     build:
       targets: { Proxy: all, ProxyUITests: [test] }
     test:
       targets: [ProxyUITests]
+  ProxyMac:
+    build:
+      targets: { ProxyMac: all, ProxyMacUITests: [test] }
+    test:
+      targets: [ProxyMacUITests]

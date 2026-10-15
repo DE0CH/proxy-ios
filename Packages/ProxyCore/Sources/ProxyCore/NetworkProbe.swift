@@ -74,22 +74,33 @@ public enum NetworkProbe {
         return .init(valid: !["CN", "HK", "MO"].contains(loc), exit: loc)
     }
 
+    /// One group's verdict from the page(s) `get` fetches (a direct session for the network probe, a session through
+    /// one candidate for the real check). `get` returns the body of an HTTP 200 answer, else nil.
+    public static func verdict(_ group: String, get: @Sendable (URL) async -> String?) async -> ProbeResult.Verdict {
+        switch group {
+        case Plan.china: return chinaVerdict(await get(chinaURL))
+        case Plan.intl: return intlVerdict(await get(intlURL))
+        default:
+            for u in aiURLs { if let b = await get(u), traceLoc(b) != nil { return aiVerdict(b) } }
+            return aiVerdict(nil)
+        }
+    }
+
+    /// GET with curl's User-Agent (ipip.net answers plain text to curl); the body of an HTTP 200 answer, else nil.
+    public static func get(_ u: URL, session: URLSession, timeout: TimeInterval) async -> String? {
+        var req = URLRequest(url: u, timeoutInterval: timeout)
+        req.setValue("curl/8.7.1", forHTTPHeaderField: "User-Agent")
+        guard let (d, resp) = try? await session.data(for: req), (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return String(decoding: d, as: UTF8.self)
+    }
+
     /// Runs the three probes in parallel with `session` (a direct, uncached session), 6 s each.
     public static func run(session: URLSession = .init(configuration: .ephemeral)) async -> ProbeResult {
-        @Sendable func get(_ u: URL) async -> String? {
-            var req = URLRequest(url: u, timeoutInterval: 6)
-            req.setValue("curl/8.7.1", forHTTPHeaderField: "User-Agent")   // ipip.net answers plain text to curl
-            guard let (d, resp) = try? await session.data(for: req),
-                  (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
-            return String(decoding: d, as: UTF8.self)
-        }
-        async let cn = get(chinaURL)
-        async let intl = get(intlURL)
-        async let ai: String? = {
-            for u in aiURLs { if let b = await get(u), traceLoc(b) != nil { return b } }
-            return nil
-        }()
-        let (c, i, a) = await (cn, intl, ai)
-        return ProbeResult(verdicts: [Plan.china: chinaVerdict(c), Plan.intl: intlVerdict(i), Plan.ai: aiVerdict(a)])
+        let get: @Sendable (URL) async -> String? = { await NetworkProbe.get($0, session: session, timeout: 6) }
+        async let c = verdict(Plan.china, get: get)
+        async let i = verdict(Plan.intl, get: get)
+        async let a = verdict(Plan.ai, get: get)
+        let (cn, intl, ai) = await (c, i, a)
+        return ProbeResult(verdicts: [Plan.china: cn, Plan.intl: intl, Plan.ai: ai])
     }
 }

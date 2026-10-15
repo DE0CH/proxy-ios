@@ -7,7 +7,10 @@ import Foundation
 ///   International (everything else)     candidates: airport nodes, direct       valid: exits outside mainland China
 /// Node validity is known from the node's name (region); direct's validity is measured by `NetworkProbe` on every
 /// network change. Each group is a selector of two urltests, `<group>·nodes` and `<group>·all` (= nodes + direct);
-/// the probe's verdict picks one, so a network change never reloads sing-box.
+/// the probe's verdict picks one, so a network change never reloads sing-box. The selector also lists every candidate
+/// itself: when the urltest's pick fails the real check (`HealthCheck`: a real page through it, from a valid exit),
+/// the extension pins the selector to the fastest candidate that passes, and back to the urltest once its pick passes.
+/// The check goes through `check·<group>` (a selector of the same candidates) behind a loopback mixed inbound per group.
 public enum Plan {
     public static let china = "China"
     public static let intl = "International"
@@ -15,6 +18,8 @@ public enum Plan {
     public static let nodesSuffix = "·nodes"
     public static let allSuffix = "·all"
     public static let directPrefix = "direct·"
+    public static let checkPrefix = "check·"
+    public static let checkInPrefix = "check-in·"
 
     public struct Group: Hashable {
         public let tag: String
@@ -24,6 +29,11 @@ public enum Plan {
         public var allTest: String { tag + Plan.allSuffix }
         /// The direct outbound this group races (one per group, so each keeps its own delay history and test URL).
         public var direct: String { Plan.directPrefix + tag }
+        /// The selector the real check points at one candidate at a time, and the inbound that leads to it.
+        public var checkSelector: String { Plan.checkPrefix + tag }
+        public var checkInbound: String { Plan.checkInPrefix + tag }
+        /// Whether a selector member is one of this group's urltests (automatic) rather than a pinned candidate.
+        public func isTest(_ member: String) -> Bool { member == nodesTest || member == allTest }
     }
 
     /// Display order. China's delay is measured to a mainland URL; the others to gstatic (unreachable from a
@@ -83,6 +93,8 @@ public struct BuildOptions {
     public var urlTestInterval = "1m"
     public var urlTestTolerance = 50
     public var logLevel = "warn"
+    /// First loopback port of the per-group check inbounds (China, International, AI = base, base+1, base+2).
+    public var checkPortBase = 9181
     public init(clashSecret: String) { self.clashSecret = clashSecret }
 }
 
@@ -159,8 +171,10 @@ public enum ConfigBuilder {
             let nodes = groupNodes[g.tag] ?? []
             // without nodes, "·nodes" would be empty: both tests then race direct alone
             let nodesMembers = nodes.isEmpty ? [g.direct] : nodes
-            outbounds.append(["type": "selector", "tag": g.tag, "outbounds": [g.nodesTest, g.allTest],
+            outbounds.append(["type": "selector", "tag": g.tag, "outbounds": [g.nodesTest, g.allTest] + nodes + [g.direct],
                               "default": nodes.isEmpty ? g.allTest : g.nodesTest, "interrupt_exist_connections": true])
+            outbounds.append(["type": "selector", "tag": g.checkSelector, "outbounds": nodes + [g.direct],
+                              "default": g.direct, "interrupt_exist_connections": true])
             for (tag, members) in [(g.nodesTest, nodesMembers), (g.allTest, nodes + [g.direct])] {
                 outbounds.append(["type": "urltest", "tag": tag, "outbounds": members, "url": g.testURL,
                                   "interval": options.urlTestInterval, "tolerance": options.urlTestTolerance,
@@ -179,6 +193,18 @@ public enum ConfigBuilder {
         case let .mixed(port):
             inbound = ["type": "mixed", "tag": "mixed-in", "listen": "127.0.0.1", "listen_port": port]
         }
+        let checkInbounds: [[String: Any]] = Plan.groups.enumerated().map { i, g in
+            ["type": "mixed", "tag": g.checkInbound, "listen": "127.0.0.1", "listen_port": options.checkPortBase + i]
+        }
+        // the real check: each group's check inbound leads to its check selector, whatever the address
+        var routeRules: [[String: Any]] = [["action": "sniff"]]
+        routeRules += Plan.groups.map { ["inbound": [$0.checkInbound], "outbound": $0.checkSelector] }
+        routeRules += [
+            ["protocol": "dns", "action": "hijack-dns"],
+            ["ip_is_private": true, "outbound": "direct"],
+            ["rule_set": ["geosite-ai"], "outbound": Plan.ai],
+            ["rule_set": ["geosite-cn", "geoip-cn"], "outbound": Plan.china],
+        ]
         let ruleSets: [[String: Any]] = [("geosite-cn", "geosite-cn"), ("geoip-cn", "geoip-cn"),
                                          ("geosite-ai", "geosite-category-ai-!cn")].map { tag, file in
             ["type": "local", "tag": tag, "format": "binary", "path": "\(options.rulesDir)/\(file).srs"]
@@ -197,16 +223,10 @@ public enum ConfigBuilder {
                 "final": "remote",
                 "strategy": "prefer_ipv4",
             ] as [String: Any],
-            "inbounds": [inbound],
+            "inbounds": [inbound] + checkInbounds,
             "outbounds": outbounds,
             "route": [
-                "rules": [
-                    ["action": "sniff"],
-                    ["protocol": "dns", "action": "hijack-dns"],
-                    ["ip_is_private": true, "outbound": "direct"],
-                    ["rule_set": ["geosite-ai"], "outbound": Plan.ai],
-                    ["rule_set": ["geosite-cn", "geoip-cn"], "outbound": Plan.china],
-                ],
+                "rules": routeRules,
                 "rule_set": ruleSets,
                 "final": Plan.intl,
                 "auto_detect_interface": true,

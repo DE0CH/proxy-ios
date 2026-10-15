@@ -13,7 +13,10 @@ import ProxyCore
 ///   forwards to the loopback controller, so no App Group or shared socket is needed;
 /// - on start and on every network change it probes where this network's own exit lands (`NetworkProbe`; the
 ///   extension's own requests bypass the tunnel) and flips each group's selector between `·nodes` and `·all`
-///   (nodes + direct) through the Clash API, so a network change never reloads sing-box.
+///   (nodes + direct) through the Clash API, so a network change never reloads sing-box;
+/// - after every probe, every `HealthCheck.interval` seconds and on the app's request it runs the real check
+///   (`HealthCheck`): each group's candidate in use must load a real page from a valid exit, else the group is
+///   pinned to the fastest candidate that does.
 final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var commandServer: LibboxCommandServer?
     private lazy var platform = PlatformInterface(self)
@@ -23,6 +26,12 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var probeTask: Task<Void, Never>?
     private var lastPath: String?
     private var probe: ProbeResult?
+    private var checkPorts: [String: Int] = [:]
+    private var health = HealthReport()
+    private var healthTask: Task<Void, Never>?
+    private var healthTimer: Task<Void, Never>?
+    private var healthAgain = false
+    private var paused = false
 
     private static let fm = FileManager.default
     private static var dataDir: URL {
@@ -73,6 +82,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         m.start(queue: DispatchQueue(label: "path"))
         pathMonitor = m
         reprobe(after: 0)
+        startHealthTimer()
     }
 
     @MainActor private func pathChanged(_ key: String) {
@@ -104,6 +114,41 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         }
         // no probe answered at all: the network was probably still coming up, so look again shortly
         if r.verdicts.values.allSatisfy({ $0.exit == nil }) { reprobe(after: 10) }
+        runHealth()
+    }
+
+    // MARK: the real check
+
+    private var directAllowed: [String: Bool] { probe?.verdicts.mapValues(\.valid) ?? [:] }
+
+    /// Starts a round, or queues one more right after the round in progress (rounds never overlap: they share the
+    /// check selectors).
+    @MainActor private func runHealth() {
+        guard healthTask == nil else { healthAgain = true; return }
+        let ports = checkPorts
+        guard !ports.isEmpty else { return }
+        healthTask = Task { [weak self] in
+            guard let self else { return }
+            let checker = HealthCheck(call: { await self.clashCall($0) }, load: { await HealthCheck.load(group: $0, port: $1) },
+                                      ports: ports)
+            let r = await checker.run(directAllowed: await MainActor.run { self.directAllowed })
+            await MainActor.run {
+                if !r.entries.isEmpty { self.health = r }
+                self.healthTask = nil
+                if self.healthAgain { self.healthAgain = false; self.runHealth() }
+            }
+        }
+    }
+
+    @MainActor private func startHealthTimer() {
+        healthTimer?.cancel()
+        healthTimer = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: HealthCheck.interval * 1_000_000_000)
+                guard !Task.isCancelled, let self else { return }
+                if await MainActor.run(body: { !self.paused }) { await self.runHealth() }
+            }
+        }
     }
 
     private func startService(_ cfg: String) throws {
@@ -111,6 +156,7 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
             .replacingOccurrences(of: "$DATA", with: Self.dataDir.path)
         config = cfg
         clash = Self.clashEndpoint(resolved)
+        checkPorts = HealthCheck.ports(config: resolved)
         do {
             try commandServer!.startOrReloadService(resolved, options: LibboxOverrideOptions())
         } catch {
@@ -119,7 +165,10 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
     }
 
     override func stopTunnel(with reason: NEProviderStopReason) async {
-        await MainActor.run { self.pathMonitor?.cancel(); self.pathMonitor = nil; self.probeTask?.cancel() }
+        await MainActor.run {
+            self.pathMonitor?.cancel(); self.pathMonitor = nil; self.probeTask?.cancel()
+            self.healthTimer?.cancel(); self.healthTask?.cancel()
+        }
         try? commandServer?.closeService()
         platform.reset()
         try? await Task.sleep(nanoseconds: 100_000_000)
@@ -127,14 +176,21 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
         commandServer = nil
     }
 
-    override func sleep() async { commandServer?.pause() }
-    override func wake() { commandServer?.wake() }
+    override func sleep() async {
+        await MainActor.run { paused = true }
+        commandServer?.pause()
+    }
+    override func wake() {
+        commandServer?.wake()
+        Task { @MainActor in paused = false; runHealth() }
+    }
 
     // MARK: app messages: {"clash": {method, path, body}} -> {status, body};  {"reload": "<config>"} -> {status};
     //                    {"probe": false} -> the last probe (ProbeResult JSON) / {"probe": true} -> probe now
+    //                    {"health": false} -> the last real check (HealthReport JSON) / {"health": true} -> check now
 
     override func handleAppMessage(_ data: Data) async -> Data? {
-        struct Message: Decodable { let clash: ClashRequest?; let reload: String?; let probe: Bool? }
+        struct Message: Decodable { let clash: ClashRequest?; let reload: String?; let probe: Bool?; let health: Bool? }
         struct ClashRequest: Decodable { let method: String; let path: String; let body: String? }
         struct Reply: Encodable { let status: Int; let body: String }
         func reply(_ s: Int, _ b: String) -> Data? { try? JSONEncoder().encode(Reply(status: s, body: b)) }
@@ -156,6 +212,14 @@ final class PacketTunnelProvider: NEPacketTunnelProvider {
                 await apply(r)
             }
             guard let p = await MainActor.run(body: { self.probe }), let d = try? JSONEncoder().encode(p) else { return reply(204, "") }
+            return reply(200, String(decoding: d, as: UTF8.self))
+        }
+        if let now = msg.health {
+            if now {
+                await runHealth()
+                while await MainActor.run(body: { self.healthTask != nil }) { try? await Task.sleep(nanoseconds: 200_000_000) }
+            }
+            guard let d = try? JSONEncoder().encode(await MainActor.run { self.health }) else { return reply(500, "") }
             return reply(200, String(decoding: d, as: UTF8.self))
         }
         guard let r = msg.clash else { return reply(400, "bad message") }

@@ -2,7 +2,10 @@ import XCTest
 
 /// Walks every flow of the UI against a desktop sing-box running the real generated config (the simulator can't
 /// run the packet tunnel): the network probe from the runner and its selector choices, a re-check, the Test (every
-/// group's exit), then a relaunch with a mocked China network (PROXY_MOCK_PROBE) flipping every group.
+/// group's exit), the real check of every group's candidate in use, then a relaunch with a mocked China network
+/// (PROXY_MOCK_PROBE) flipping every group. It starts at the unlock screen (Keychain cleared): a wrong password must
+/// be refused, the real one (PROXY_UNLOCK_PASSWORD) opens the sealed subscriptions, and the relaunch must not ask
+/// again. The same file runs on the iPhone simulator and on the Mac.
 /// Screenshots go to $SCREENSHOT_DIR (a host path; the workflow uploads them). Fails on a blank or stuck screen.
 final class ProxyUITests: XCTestCase {
     var app: XCUIApplication!
@@ -11,15 +14,66 @@ final class ProxyUITests: XCTestCase {
 
     override func setUp() {
         continueAfterFailure = false
-        launch(probe: nil)
+        launch(probe: nil, resetUnlock: true)
     }
 
-    func launch(probe: String?) {
+    func launch(probe: String?, resetUnlock: Bool = false) {
         app?.terminate()
         app = XCUIApplication()
-        for k in ["PROXY_MOCK_CLASH", "PROXY_MOCK_SECRET", "PROXY_MOCK_HTTP_PROXY"] { app.launchEnvironment[k] = env[k] }
+        for k in ["PROXY_MOCK_CLASH", "PROXY_MOCK_SECRET", "PROXY_MOCK_HTTP_PROXY", "PROXY_MOCK_CHECK_PORT_BASE"] {
+            app.launchEnvironment[k] = env[k]
+        }
         if let probe { app.launchEnvironment["PROXY_MOCK_PROBE"] = probe }
+        if resetUnlock { app.launchEnvironment["PROXY_RESET_UNLOCK"] = "1" }
         app.launch()
+    }
+
+    func press(_ e: XCUIElement) {
+        #if os(iOS)
+        e.tap()
+        #else
+        e.click()
+        #endif
+    }
+
+    // scrolling: swipes on the phone, scroll-wheel deltas on the Mac
+    func scrollDown() {
+        #if os(iOS)
+        app.swipeUp()
+        #else
+        app.windows.firstMatch.scroll(byDeltaX: 0, deltaY: -400)
+        #endif
+    }
+    func scrollUp() {
+        #if os(iOS)
+        app.swipeDown()
+        #else
+        app.windows.firstMatch.scroll(byDeltaX: 0, deltaY: 4000)
+        #endif
+    }
+
+    func unlock() {
+        let pw = el("unlock-password")
+        XCTAssertTrue(pw.waitForExistence(timeout: 20), "no unlock screen on a fresh install")
+        press(pw); pw.typeText("not-the-password")
+        press(el("unlock-button"))
+        XCTAssertTrue(el("unlock-error").waitForExistence(timeout: 10), "a wrong password was not refused")
+        shot("unlock-wrong")
+        let real = env["PROXY_UNLOCK_PASSWORD"] ?? ""
+        XCTAssertFalse(real.isEmpty, "PROXY_UNLOCK_PASSWORD is not set for the test")
+        press(pw)
+        pw.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 20))
+        pw.typeText(real)
+        press(el("unlock-button"))
+    }
+
+    func waitValue(_ id: String, oneOf values: [String], timeout: TimeInterval = 60) {
+        let e = el(id)
+        var n = 0
+        while !e.exists && n < 8 { scrollDown(); n += 1 }
+        let p = NSPredicate(format: "value IN %@", values)
+        XCTAssertEqual(XCTWaiter().wait(for: [expectation(for: p, evaluatedWith: e)], timeout: timeout), .completed,
+                       "\(id) never became one of \(values) (is \(e.value ?? "nil"))")
     }
 
     func shot(_ name: String) {
@@ -36,7 +90,7 @@ final class ProxyUITests: XCTestCase {
     func waitValue(_ id: String, _ value: String, timeout: TimeInterval = 15) {
         let e = el(id)
         var n = 0
-        while !e.exists && n < 8 { app.swipeUp(); n += 1 }   // List rows below the fold don't exist yet
+        while !e.exists && n < 8 { scrollDown(); n += 1 }   // List rows below the fold don't exist yet
         let p = NSPredicate(format: "value == %@", value)
         XCTAssertEqual(XCTWaiter().wait(for: [expectation(for: p, evaluatedWith: e)], timeout: timeout), .completed,
                        "\(id) never became \(value)")
@@ -48,14 +102,15 @@ final class ProxyUITests: XCTestCase {
                        "\(id) never showed \(label)")
     }
 
-    func top() { for _ in 0..<5 { app.swipeDown() } }
+    func top() { for _ in 0..<5 { scrollUp() } }
 
     func scrollTo(_ e: XCUIElement) {
         var n = 0
-        while !e.isHittable && n < 12 { app.swipeUp(); n += 1 }
+        while !e.isHittable && n < 12 { scrollDown(); n += 1 }
     }
 
     func testEveryFlow() {
+        unlock()
         let up = el("test-button").waitForExistence(timeout: 30)
         if !up {
             shot("never-loaded")
@@ -73,12 +128,12 @@ final class ProxyUITests: XCTestCase {
 
         let recheck = el("recheck-button")
         scrollTo(recheck)
-        recheck.tap()
+        press(recheck)
         waitValue("direct-International", "allowed")
         shot("rechecked")
 
         top()
-        el("test-button").tap()
+        press(el("test-button"))
         let line = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'AI exit'")).firstMatch
         XCTAssertTrue(line.waitForExistence(timeout: 120), "the test never finished")
         XCTAssertFalse(line.label.contains("no answer"), line.label)
@@ -90,15 +145,21 @@ final class ProxyUITests: XCTestCase {
             let cn = app.staticTexts.containing(NSPredicate(format: "label BEGINSWITH 'China exit: CN'")).firstMatch
             XCTAssertTrue(cn.exists, "China did not exit in mainland China")
         }
+        // the real check: every group's candidate in use loads a real page (or the group switched to one that does)
+        waitValue("health-International", oneOf: ["passed", "pinned"])
+        waitValue("health-AI", oneOf: ["passed", "pinned"])
+        if env["PROXY_EXPECT_CN"] == "1" { waitValue("health-China", oneOf: ["passed", "pinned"]) }
+        top()
         shot("test-result")
-        app.swipeUp()
+        scrollDown()
         shot("test-result-groups")
-        app.swipeUp()
+        scrollDown()
         shot("groups-ai")
 
-        // a mainland network with no split: direct is valid for China only
+        // a mainland network with no split: direct is valid for China only; the password is remembered
         launch(probe: "China=1,International=0,AI=0")
-        XCTAssertTrue(el("test-button").waitForExistence(timeout: 30))
+        XCTAssertTrue(el("test-button").waitForExistence(timeout: 30), "the relaunch did not skip the unlock screen")
+        XCTAssertFalse(el("unlock-password").exists)
         waitValue("direct-China", "allowed")
         waitValue("direct-International", "not allowed")
         waitValue("direct-AI", "not allowed")

@@ -14,6 +14,12 @@ struct ProviderChannel: ClashChannel {
     func call(_ r: ClashCall.Request) async throws -> ClashCall.Response {
         try await send(["clash": ["method": r.method, "path": r.path, "body": r.body as Any]])
     }
+    /// The extension's last real check (`now`: check again first; the reply comes when that round is done).
+    func health(now: Bool) async throws -> HealthReport? {
+        let r = try await send(["health": now])
+        guard r.status == 200 else { return nil }
+        return try JSONDecoder().decode(HealthReport.self, from: Data(r.body.utf8))
+    }
     /// The extension's last network probe (`now`: probe again first).
     func probe(now: Bool) async throws -> ProbeResult? {
         let r = try await send(["probe": now])
@@ -65,6 +71,14 @@ final class TunnelController: ObservableObject {
     @Published var testing = false
     @Published var working = false
     @Published var apiError: String?
+    @Published var health: HealthReport?
+    @Published var checking = false
+    /// The unlocked subscriptions (`Vault`); nil until the password is entered (once per device, then Keychain).
+    @Published private(set) var payload: Payload?
+    @Published var unlockError: String?
+    #if os(macOS)
+    let sysext = SystemExtension()
+    #endif
 
     private var manager: NETunnelProviderManager?
     private var observer: NSObjectProtocol?
@@ -89,6 +103,23 @@ final class TunnelController: ObservableObject {
             mockHTTPProxy = nil
         }
         mockProbe = env["PROXY_MOCK_PROBE"]
+        mockCheckPortBase = env["PROXY_MOCK_CHECK_PORT_BASE"].flatMap(Int.init)
+        if env["PROXY_RESET_UNLOCK"] == "1" { Vault.forget() }
+        if let pw = Vault.savedPassword { payload = try? Vault.open(password: pw) }
+    }
+
+    private let mockCheckPortBase: Int?
+
+    var locked: Bool { payload == nil }
+
+    /// Opens the sealed subscriptions with `password`; on success it is kept in the Keychain.
+    func unlock(_ password: String) {
+        let pw = password.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            payload = try Vault.open(password: pw)
+            Vault.save(pw)
+            unlockError = nil
+        } catch { unlockError = error.localizedDescription }
     }
 
     var connected: Bool { status == .connected }
@@ -140,7 +171,8 @@ final class TunnelController: ObservableObject {
     }
 
     private func buildConfig() async throws -> String {
-        let subs = await Subscriptions.fetchAll()
+        guard let payload else { throw VaultError.wrongPassword }
+        let subs = await Subscriptions.fetchAll(payload)
         let notes = subs.notes
         let r = try ConfigBuilder.build(subscriptions: subs.data, options: BuildOptions(clashSecret: UUID().uuidString))
         let all = notes + r.warnings
@@ -154,6 +186,9 @@ final class TunnelController: ObservableObject {
         defer { working = false }
         do {
             if on {
+                #if os(macOS)
+                try await sysext.activate()
+                #endif
                 let cfg = try await buildConfig()
                 let m = try await ensureManager()
                 try m.connection.startVPNTunnel(options: ["config": cfg as NSString])
@@ -194,11 +229,14 @@ final class TunnelController: ObservableObject {
         do {
             let r = try await ch.call(ClashCall.proxies)
             guard r.status == 200 else { apiError = "Clash API: HTTP \(r.status) \(r.body.prefix(120))"; return }
-            let new = try ProxyState.parse(Data(r.body.utf8))
+            let new = try ProxyState.parse(Data(r.body.utf8), directAllowed: probe?.verdicts.mapValues(\.valid) ?? [:])
             if new != state { state = new }      // no re-render (and no accessibility churn) when nothing changed
             if apiError != nil { apiError = nil }
         } catch { apiError = "Clash API: \(error.localizedDescription)" }
-        if mock == nil, let p = provider, let new = try? await p.probe(now: false), new != probe { probe = new }
+        if mock == nil, let p = provider {
+            if let new = try? await p.probe(now: false), new != probe { probe = new }
+            if let new = try? await p.health(now: false), new != health { health = new }
+        }
     }
 
     /// Probes the network again and applies the result (the extension does it by itself on every network change).
@@ -212,6 +250,7 @@ final class TunnelController: ObservableObject {
             if let spec = mockProbe { r = ProbeResult.mock(spec) } else { r = await NetworkProbe.run() }
             for req in ClashCall.apply(r) { _ = try? await mock.call(req) }
             probe = r
+            await checkNow()
         } else if let p = provider {
             probe = (try? await p.probe(now: true)) ?? probe
         }
@@ -233,6 +272,7 @@ final class TunnelController: ObservableObject {
             }
         }
         await refresh()
+        await checkNow()
         let start = Date()
         async let cn = exitOf("https://myip.ipip.net", china: true)
         async let intl = exitOf("https://www.cloudflare.com/cdn-cgi/trace")
@@ -268,5 +308,22 @@ final class TunnelController: ObservableObject {
         }
         guard let place else { return "no answer" }
         return "\(place), \(ms) ms for a fresh HTTPS request incl. TLS handshake"
+    }
+
+    /// Runs the real check now (the extension also runs it by itself after every probe and every few minutes).
+    /// Test mode: the app runs the same round against the desktop sing-box's check ports.
+    func checkNow() async {
+        checking = true
+        defer { checking = false }
+        if let mock, let base = mockCheckPortBase {
+            var ports: [String: Int] = [:]
+            for (i, g) in Plan.groups.enumerated() { ports[g.tag] = base + i }
+            let checker = HealthCheck(call: { r in (try? await mock.call(r)) ?? .init(status: 0, body: "") },
+                                      load: { await HealthCheck.load(group: $0, port: $1) }, ports: ports)
+            health = await checker.run(directAllowed: probe?.verdicts.mapValues(\.valid) ?? [:])
+        } else if let p = provider {
+            health = (try? await p.health(now: true)) ?? health
+        }
+        await refresh()
     }
 }

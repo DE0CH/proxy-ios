@@ -46,7 +46,11 @@ final class ConfigBuilderTests: XCTestCase {
         for g in Plan.groups {
             let sel = outbound(c, g.tag)!
             XCTAssertEqual(sel["type"] as? String, "selector")
-            XCTAssertEqual(sel["outbounds"] as? [String], [g.nodesTest, g.allTest])
+            // the two urltests, then every candidate itself so the real check can pin one
+            XCTAssertEqual(sel["outbounds"] as? [String], [g.nodesTest, g.allTest] + r.groups[g.tag]! + [g.direct])
+            let check = outbound(c, g.checkSelector)!
+            XCTAssertEqual(check["type"] as? String, "selector")
+            XCTAssertEqual(check["outbounds"] as? [String], r.groups[g.tag]! + [g.direct])
             XCTAssertEqual(sel["default"] as? String, g.nodesTest)
             let nodes = outbound(c, g.nodesTest)!, both = outbound(c, g.allTest)!
             XCTAssertEqual(nodes["type"] as? String, "urltest")
@@ -146,5 +150,115 @@ final class ProxyStateTests: XCTestCase {
     func testClashCallPathsAreEncoded() {
         XCTAssertEqual(ClashCall.select("国际", "x").path, "/proxies/%E5%9B%BD%E9%99%85")
         XCTAssertTrue(ClashCall.test("AI·all").path.hasPrefix("/group/AI%C2%B7all/delay"))
+    }
+}
+
+final class HealthCheckTests: XCTestCase {
+    func testCheckInboundsLeadToTheirCheckSelectors() throws {
+        let subs: [Plan.Source: Data] = [.liangxin: try fixture("liangxin.json"), .gulu: try fixture("gulu.json"), .cn: try fixture("cn.json")]
+        let json = try ConfigBuilder.build(subscriptions: subs, options: BuildOptions(clashSecret: "s")).json
+        let c = try JSONSerialization.jsonObject(with: Data(json.utf8)) as! [String: Any]
+        let ins = c["inbounds"] as! [[String: Any]]
+        let rules = (c["route"] as! [String: Any])["rules"] as! [[String: Any]]
+        for (i, g) in Plan.groups.enumerated() {
+            let inb = ins.first { $0["tag"] as? String == g.checkInbound }!
+            XCTAssertEqual(inb["type"] as? String, "mixed")
+            XCTAssertEqual(inb["listen"] as? String, "127.0.0.1")
+            XCTAssertEqual(inb["listen_port"] as? Int, 9181 + i)
+            let ri = rules.firstIndex { ($0["inbound"] as? [String]) == [g.checkInbound] }!
+            XCTAssertEqual(rules[ri]["outbound"] as? String, g.checkSelector)
+            // before every routing rule that could send it elsewhere
+            XCTAssertLessThan(ri, rules.firstIndex { $0["rule_set"] != nil }!)
+        }
+        XCTAssertEqual(HealthCheck.ports(config: json), [Plan.china: 9181, Plan.intl: 9182, Plan.ai: 9183])
+    }
+
+    func testParsesAPinnedSelector() throws {
+        let f = FakeClash(auto: ["International": "b"], delays: ["a": 300, "b": 100, "c": 200])
+        f.select("International", "c")
+        let s = try ProxyState.parse(f.proxies(), directAllowed: ["International": false])
+        let g = s.groups.first { $0.tag == Plan.intl }!
+        XCTAssertTrue(g.pinned)
+        XCTAssertEqual(g.current, "c")
+        XCTAssertEqual(g.auto, "b")
+        XCTAssertFalse(g.directAllowed)
+    }
+
+    func testPassingPickStaysAutomatic() async {
+        let f = FakeClash(auto: ["International": "b"], delays: ["a": 300, "b": 100, "c": 200])
+        let r = await f.checker(bad: []).run(directAllowed: [:])
+        let e = r.entries[Plan.intl]!
+        XCTAssertTrue(e.passed); XCTAssertFalse(e.pinned); XCTAssertEqual(e.candidate, "b")
+        XCTAssertNil(f.selected["International"])   // the group's selector is never touched
+    }
+
+    func testFailingPickPinsTheFastestPassingCandidate() async {
+        let f = FakeClash(auto: ["International": "b"], delays: ["a": 300, "b": 100, "c": 200])
+        let r = await f.checker(bad: ["b"]).run(directAllowed: [:])
+        let e = r.entries[Plan.intl]!
+        XCTAssertTrue(e.passed); XCTAssertTrue(e.pinned)
+        XCTAssertEqual(e.candidate, "c")            // c (200 ms) before a (300 ms)
+        XCTAssertEqual(e.failed, ["b"])
+        XCTAssertEqual(f.selected["International"], "c")
+        XCTAssertEqual(f.loads.filter { $0 == "b" }.count, 2)   // the pick gets a second try before it counts as failed
+    }
+
+    func testUnpinsWhenThePickPassesAgain() async {
+        let f = FakeClash(auto: ["International": "b"], delays: ["a": 300, "b": 100, "c": 200])
+        f.select("International", "c")
+        let r = await f.checker(bad: []).run(directAllowed: [:])
+        XCTAssertFalse(r.entries[Plan.intl]!.pinned)
+        XCTAssertEqual(f.selected["International"], "International·nodes")
+    }
+
+    func testNothingPassesLeavesTheUrltest() async {
+        let f = FakeClash(auto: ["International": "b"], delays: ["a": 300, "b": 100, "c": 200])
+        f.select("International", "c")
+        let r = await f.checker(bad: ["a", "b", "c"]).run(directAllowed: [:])
+        let e = r.entries[Plan.intl]!
+        XCTAssertFalse(e.passed); XCTAssertFalse(e.pinned)
+        XCTAssertEqual(Set(e.failed), ["a", "b", "c"])
+        XCTAssertEqual(f.selected["International"], "International·nodes")
+    }
+}
+
+/// A Clash API with one International group of nodes a, b, c (no China/AI candidates beyond direct), whose
+/// selectors remember PUTs; `load` passes unless the check selector points at a "bad" candidate.
+final class FakeClash: @unchecked Sendable {
+    let lock = NSLock()
+    var selected: [String: String] = [:]
+    var loads: [String] = []
+    let auto: [String: String]
+    let delays: [String: Int]
+    init(auto: [String: String], delays: [String: Int]) { self.auto = auto; self.delays = delays }
+
+    func select(_ g: String, _ m: String) { lock.lock(); selected[g] = m; lock.unlock() }
+
+    func proxies() -> Data {
+        lock.lock(); defer { lock.unlock() }
+        var p: [String: Any] = [:]
+        for g in Plan.groups {
+            let nodes = g.tag == Plan.intl ? ["a", "b", "c"] : [g.direct]
+            p[g.tag] = ["type": "Selector", "now": selected[g.tag] ?? g.nodesTest, "all": [g.nodesTest, g.allTest] + nodes]
+            p[g.nodesTest] = ["type": "URLTest", "now": auto[g.tag] ?? nodes[0], "all": nodes]
+            p[g.allTest] = ["type": "URLTest", "now": auto[g.tag] ?? nodes[0], "all": nodes + [g.direct]]
+            p[g.checkSelector] = ["type": "Selector", "now": selected[g.checkSelector] ?? g.direct, "all": nodes + [g.direct]]
+        }
+        for (t, d) in delays { p[t] = ["type": "VLESS", "history": [["delay": d]]] }
+        return try! JSONSerialization.data(withJSONObject: ["proxies": p])
+    }
+
+    func checker(bad: Set<String>) -> HealthCheck {
+        HealthCheck(call: { r in
+            if r.method == "GET" { return .init(status: 200, body: String(decoding: self.proxies(), as: UTF8.self)) }
+            let name = (try! JSONSerialization.jsonObject(with: Data(r.body!.utf8)) as! [String: String])["name"]!
+            let group = r.path.replacingOccurrences(of: "/proxies/", with: "").removingPercentEncoding!
+            self.select(group, name)
+            return .init(status: 204, body: "")
+        }, load: { group, _ in
+            let c = self.lock.withLock { self.selected[Plan.group(group)!.checkSelector] ?? "" }
+            self.lock.withLock { self.loads.append(c) }
+            return .init(passed: !bad.contains(c), exit: "US", ms: 100)
+        }, ports: [Plan.china: 1, Plan.intl: 2, Plan.ai: 3])
     }
 }

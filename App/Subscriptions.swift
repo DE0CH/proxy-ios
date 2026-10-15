@@ -1,10 +1,10 @@
 import Foundation
 import ProxyCore
 
-/// Fetches the two airport subscriptions as sing-box JSON. Each one falls back to the last good copy (kept in
-/// Application Support), then to the snapshot bundled at build time, so the first connect works even where an
-/// airport's subscription host is blocked without a proxy. The China node (our own Guangzhou server) has no
-/// subscription URL: it is only the copy bundled at build time (repo secret CN_NODE_JSON).
+/// Fetches the two airport subscriptions as sing-box JSON, from the URLs in the unlocked bundle (`Vault`). Each one
+/// falls back to the last good copy (kept in Application Support), then to the snapshot sealed into the build, so
+/// the first connect works even where an airport's subscription host is blocked without a proxy. The China node
+/// (our own Guangzhou server) has no subscription URL: it is only the sealed copy (repo secret CN_NODE_JSON).
 enum Subscriptions {
     static let userAgent = "SFI/1.12.0 (sing-box 1.12.0)"
 
@@ -20,33 +20,23 @@ enum Subscriptions {
         return d
     }
 
-    static func url(_ a: Plan.Source) -> URL? {
-        let s: String
-        switch a {
-        case .liangxin: s = Secrets.liangxinSubscription
-        case .gulu: s = Secrets.guluSubscription
-        case .cn: return nil
-        }
-        return s.isEmpty ? nil : URL(string: s)
-    }
-
     static func name(_ a: Plan.Source) -> String { a.name }
 
     static func valid(_ d: Data, _ a: Plan.Source) -> Bool { (try? ConfigBuilder.nodes(from: d, source: a))?.isEmpty == false }
 
-    static func bundled(_ a: Plan.Source) -> Data? {
-        guard let b = Bundle.main.url(forResource: a.rawValue, withExtension: "json", subdirectory: "Subscriptions"),
-              let c = try? Data(contentsOf: b), valid(c, a) else { return nil }
+    /// The snapshot sealed into the build, when it is a usable profile.
+    static func bundled(_ a: Plan.Source, _ p: Payload) -> Data? {
+        guard let c = p.snapshot(a), valid(c, a) else { return nil }
         return c
     }
 
-    static func fetchAll() async -> Result {
+    static func fetchAll(_ payload: Payload) async -> Result {
         var r = Result()
-        if let c = bundled(.cn) { r.data[.cn] = c } else { r.notes.append("China node: not in this build") }
+        if let c = bundled(.cn, payload) { r.data[.cn] = c } else { r.notes.append("China node: not in this build") }
         await withTaskGroup(of: (Plan.Source, Data?, String?).self) { g in
             for a in Plan.Source.allCases where a != .cn {
                 g.addTask {
-                    guard let u = url(a) else { return (a, nil, "no subscription URL in this build") }
+                    guard let u = payload.url(a) else { return (a, nil, "no subscription URL in this build") }
                     var req = URLRequest(url: u, timeoutInterval: 20)
                     req.setValue(userAgent, forHTTPHeaderField: "User-Agent")
                     do {
@@ -65,7 +55,7 @@ enum Subscriptions {
                 } else if let c = try? Data(contentsOf: cache), valid(c, a) {
                     r.data[a] = c
                     r.notes.append("\(name(a)): last good copy (fetch failed: \(why ?? "?"))")
-                } else if let c = bundled(a) {
+                } else if let c = bundled(a, payload) {
                     r.data[a] = c
                     r.notes.append("\(name(a)): copy from the build (fetch failed: \(why ?? "?"))")
                 } else {

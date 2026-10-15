@@ -10,23 +10,28 @@ public struct ProxyState: Equatable {
         public var id: String { tag }
         public var isDirect: Bool { tag.hasPrefix(Plan.directPrefix) }
         /// The tag without the source prefix, for display.
-        public var name: String {
-            isDirect ? "Direct" : tag.replacingOccurrences(of: "^(良心云|咕噜|回国) ", with: "", options: .regularExpression)
+        public var name: String { Self.displayName(tag) }
+        public static func displayName(_ tag: String) -> String {
+            tag.hasPrefix(Plan.directPrefix) ? "Direct"
+                : tag.replacingOccurrences(of: "^(良心云|咕噜|回国) ", with: "", options: .regularExpression)
         }
     }
     public struct Group: Equatable, Identifiable {
         public let tag: String
         public let title: String
         public let directAllowed: Bool  // the selector is on `·all`: direct races the nodes on this network
-        public let current: String?     // the candidate in use (the urltest's pick)
+        public let current: String?     // the candidate in use: the urltest's pick, or the pinned candidate
+        public let auto: String?        // the urltest's own pick (the fastest by delay)
+        public let pinned: Bool         // the real check failed the urltest's pick: the selector is pinned to `current`
         public let candidates: [Candidate]
         public var id: String { tag }
         public var currentCandidate: Candidate? { candidates.first { $0.tag == current } }
     }
     public let groups: [Group]
 
-    /// Parses `GET /proxies`. Groups missing from the running config are left out.
-    public static func parse(_ data: Data) throws -> ProxyState {
+    /// Parses `GET /proxies`. Groups missing from the running config are left out. `directAllowed` (the probe's verdict
+    /// per group) says which urltest a pinned group belongs to; without it a pin to a node reads as nodes only.
+    public static func parse(_ data: Data, directAllowed: [String: Bool] = [:]) throws -> ProxyState {
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let proxies = obj["proxies"] as? [String: [String: Any]] else {
             throw ProxyStateError.unexpectedAnswer
@@ -37,10 +42,13 @@ public struct ProxyState: Equatable {
         }
         var groups: [Group] = []
         for g in Plan.groups {
-            guard let sel = proxies[g.tag], let test = sel["now"] as? String,
-                  let t = proxies[test], let all = t["all"] as? [String] else { continue }
+            guard let sel = proxies[g.tag], let now = sel["now"] as? String else { continue }
+            let pinned = !g.isTest(now)
+            let test = !pinned ? now : (directAllowed[g.tag] == true || now == g.direct ? g.allTest : g.nodesTest)
+            guard let t = proxies[test], let all = t["all"] as? [String] else { continue }
+            let auto = t["now"] as? String
             groups.append(Group(tag: g.tag, title: g.title, directAllowed: test == g.allTest,
-                                current: t["now"] as? String,
+                                current: pinned ? now : auto, auto: auto, pinned: pinned,
                                 candidates: all.map { Candidate(tag: $0, delay: lastDelay($0)) }))
         }
         return ProxyState(groups: groups)

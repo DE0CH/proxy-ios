@@ -1,6 +1,10 @@
 # Builds the app on a GitHub macOS runner, walks every UI flow on an iPhone 17 simulator against a desktop
 # sing-box running the real generated config (the phone replica), then archives UNSIGNED and lets the export
 # cloud-sign with Apple's managed distribution certificate (App Store Connect API key) and upload to TestFlight.
+# The `mac` job walks the same flows in the Mac app (the Mac replica), signs it with the Developer ID certificate,
+# notarizes it and publishes Proxy-mac.zip as a GitHub Release (tag mac-<run number>).
+# Both apps carry the subscriptions only sealed with PROXY_UNLOCK_PASSWORD (scripts/seal.py), so a public release
+# holds nothing readable; the replicas type that password into the unlock screen.
 #
 # This repo is public and the subscriptions are private, so nothing derived from them may reach the log or an
 # artifact: every step's output is also written to $RUNNER_TEMP/joblog, steps print only verdicts, and
@@ -12,10 +16,11 @@ on:
   workflow_dispatch:
     inputs:
       upload: { description: "Upload to TestFlight", type: boolean, default: true }
+      mac: { description: "Build, notarize and release the Mac app", type: boolean, default: true }
       simulator: { description: "Run the simulator replica first", type: boolean, default: true }
   push:
     branches: [main]
-    paths: ["App/**", "PacketTunnel/**", "Packages/**", "UITests/**", "project.yml", "scripts/**", ".github/workflows/ios.yml"]
+    paths: ["App/**", "PacketTunnel/**", "PacketTunnelMac/**", "Packages/**", "UITests/**", "project.yml", "scripts/**", ".github/workflows/ios.yml"]
 concurrency: { group: ios, cancel-in-progress: false }
 permissions: { contents: read }
 defaults:
@@ -31,6 +36,7 @@ jobs:
       LIANGXIN_SUB_SNAPSHOT: ${{ secrets.LIANGXIN_SUB_SNAPSHOT }}
       GULU_SUB_SNAPSHOT: ${{ secrets.GULU_SUB_SNAPSHOT }}
       CN_NODE_JSON: ${{ secrets.CN_NODE_JSON }}
+      PROXY_UNLOCK_PASSWORD: ${{ secrets.PROXY_UNLOCK_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - name: Select the newest Xcode
@@ -100,3 +106,68 @@ jobs:
       - name: Leak check (whole log)
         if: always()
         run: python3 scripts/leak-check.py "$RUNNER_TEMP/joblog"
+
+  mac:
+    if: github.event_name == 'push' || inputs.mac
+    runs-on: macos-26
+    timeout-minutes: 75
+    permissions: { contents: write }
+    env:
+      LIANGXIN_SUB_URL: ${{ secrets.LIANGXIN_SUB_URL }}
+      GULU_SUB_URL: ${{ secrets.GULU_SUB_URL }}
+      LIANGXIN_SUB_SNAPSHOT: ${{ secrets.LIANGXIN_SUB_SNAPSHOT }}
+      GULU_SUB_SNAPSHOT: ${{ secrets.GULU_SUB_SNAPSHOT }}
+      CN_NODE_JSON: ${{ secrets.CN_NODE_JSON }}
+      PROXY_UNLOCK_PASSWORD: ${{ secrets.PROXY_UNLOCK_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select the newest Xcode
+        run: |
+          mkdir -p "$RUNNER_TEMP/joblog"
+          {
+            XCODE=$(ls -d /Applications/Xcode_*.app | grep -v -i beta | sort -V | tail -1)
+            echo "Using $XCODE"; sudo xcode-select -s "$XCODE"; xcodebuild -version
+          } 2>&1 | tee "$RUNNER_TEMP/joblog/xcode.log"
+      - name: Prepare (Libbox, rule sets, sealed subscriptions, xcodegen)
+        env: { BUILD_NUMBER: "${{ github.run_number }}" }
+        run: |
+          {
+            scripts/prepare.sh
+            sed -i '' "s/BUILD_NUMBER: \"1\"/BUILD_NUMBER: \"$BUILD_NUMBER\"/" project.yml && xcodegen generate --quiet
+          } 2>&1 | tee "$RUNNER_TEMP/joblog/prepare.log"
+      - name: Mac replica (every flow, real nodes)
+        id: replica
+        timeout-minutes: 30
+        run: PLATFORM=mac OUT=$PWD/test-output PRIVATE=$RUNNER_TEMP/private scripts/simulator-test.sh 2>&1 | tee "$RUNNER_TEMP/joblog/replica.log"
+      - name: Leak check (log so far + screenshots)
+        id: gate1
+        if: always()
+        run: |
+          mkdir -p test-output/screens
+          find test-output/screens -type f ! -name '*.png' -delete
+          python3 scripts/leak-check.py "$RUNNER_TEMP/joblog" test-output/screens
+      - name: Keep the Mac replica screenshots
+        if: always() && steps.gate1.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with: { name: mac-replica-screens, path: "test-output/screens/*.png", if-no-files-found: ignore }
+      - name: Sign (Developer ID), notarize, staple
+        if: steps.replica.outcome == 'success'
+        env:
+          MAC_DEVID_P12: ${{ secrets.MAC_DEVID_P12 }}
+          MAC_DEVID_P12_PASSWORD: ${{ secrets.MAC_DEVID_P12_PASSWORD }}
+          MAC_PROFILE_APP: ${{ secrets.MAC_PROFILE_APP }}
+          MAC_PROFILE_TUNNEL: ${{ secrets.MAC_PROFILE_TUNNEL }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_PRIVATE_KEY: ${{ secrets.ASC_PRIVATE_KEY }}
+        run: OUT=$RUNNER_TEMP/mac-out scripts/mac-release.sh 2>&1 | tee "$RUNNER_TEMP/joblog/mac-release.log"
+      - name: Leak check (whole log)
+        if: always()
+        run: python3 scripts/leak-check.py "$RUNNER_TEMP/joblog"
+      - name: GitHub Release
+        if: success()
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          T="mac-${{ github.run_number }}"
+          gh release create "$T" "$RUNNER_TEMP/mac-out/Proxy-mac.zip" --target "$GITHUB_SHA" --title "Proxy for Mac (build ${{ github.run_number }})" \
+            --notes "Developer ID signed and notarized. Unzip, move Proxy.app to /Applications, open it, enter the unlock password once, then allow the network extension in System Settings when macOS asks."

@@ -151,6 +151,9 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         CFBundlePackageType: SYSX
         LSMinimumSystemVersion: "13.0"
+        # Required for every system extension: without it activation fails ("…require the presence of the
+        # 'NSSystemExtensionUsageDescription' property"). macOS shows it when asking to allow the extension.
+        NSSystemExtensionUsageDescription: "Proxy uses this network extension to route your traffic through its VPN tunnel."
         NetworkExtension:
           NEMachServiceName: S64YL394S3.dev.de0ch.proxy.tunnel
           NEProviderClasses:

@@ -34,6 +34,7 @@ APP="$T/mac-export/Proxy.app"
 SX="$APP/Contents/Library/SystemExtensions/dev.de0ch.proxy.tunnel.systemextension"
 [ -d "$SX" ] || { echo "no system extension in the app"; find "$APP" -maxdepth 4 -name '*.systemextension'; exit 1; }
 codesign --verify --deep --strict "$APP" && echo "codesign: valid"
+echo "Mac bundle check (exported app):"; python3 scripts/check-mac-bundle.py "$APP" | sed "s/^/  /"
 codesign -d --entitlements - "$SX" 2>&1 | grep -E "systemextension|application-groups" | head -3
 codesign -dv "$APP" 2>&1 | grep -E "^Authority=Developer ID Application|^TeamIdentifier|flags=.*runtime" | head -3
 
@@ -49,6 +50,7 @@ grep -q "status: Accepted" "$T/private-notary.log" || {
     --issuer "$ASC_ISSUER_ID" 2>&1 | grep -E '"(message|path|severity)"' | sed "s#$T/##" | head -30; rm -f "$KEY"; exit 1; }
 xcrun stapler staple "$APP" | tail -1
 spctl -a -vv -t exec "$APP" 2>&1 | head -3
+python3 scripts/check-mac-bundle.py "$APP" > /dev/null || { echo "Mac bundle check failed after stapling"; exit 1; }
 ditto -c -k --keepParent "$APP" "$OUT/Proxy-mac.zip"
 du -h "$OUT/Proxy-mac.zip" | sed "s#$T/##"
 security delete-keychain "$KC"

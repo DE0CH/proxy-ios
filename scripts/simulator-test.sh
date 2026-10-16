@@ -79,3 +79,10 @@ print(f"screenshots from the result bundle: {n}")
 PY
 rm -f "$OUT/screens/"*.txt   # view-hierarchy dumps can include node names and test lines: keep them private
 grep -q "\*\* TEST SUCCEEDED \*\*" "$PRIVATE/xcodebuild-test.log"
+if [ "${PLATFORM:-ios}" = mac ]; then
+  # the bundle's Info.plists against the system-extension requirements (entitlements are checked on the signed export
+  # in mac-release.sh; this ad hoc build has none)
+  MACAPP=$(find "$HOME/Library/Developer/Xcode/DerivedData" -path '*/Build/Products/Release/Proxy.app' -maxdepth 6 2>/dev/null | head -1)
+  [ -n "$MACAPP" ] || { echo "no Release Proxy.app in DerivedData"; exit 1; }
+  echo "Mac bundle check (Info.plists):"; python3 scripts/check-mac-bundle.py "$MACAPP" --no-entitlements | sed "s/^/  /"
+fi

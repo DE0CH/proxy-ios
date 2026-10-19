@@ -12,11 +12,12 @@ import ProxyCore
 /// - the app reaches sing-box's Clash API through `handleAppMessage` ("clash" requests), which this process
 ///   forwards to the loopback controller, so no App Group or shared socket is needed;
 /// - on start and on every network change it probes where this network's own exit lands (`NetworkProbe`; the
-///   extension's own requests bypass the tunnel) and flips each group's selector between `·nodes` and `·all`
-///   (nodes + direct) through the Clash API, so a network change never reloads sing-box;
+///   extension's own requests bypass the tunnel) and puts each group's selector on `direct·<g>` where direct is
+///   valid (always direct, never raced) or on `·nodes` (the fastest node) through the Clash API, so a network change
+///   never reloads sing-box;
 /// - after every probe, every `HealthCheck.interval` seconds and on the app's request it runs the real check
-///   (`HealthCheck`): each group's candidate in use must load a real page from a valid exit, else the group is
-///   pinned to the fastest candidate that does.
+///   (`HealthCheck`): direct first where allowed, falling back to the nodes when it fails; a node in use must load a
+///   real page from a valid exit, else the group is pinned to the fastest node that does.
 final class PacketTunnelProvider: NEPacketTunnelProvider {
     private var commandServer: LibboxCommandServer?
     private lazy var platform = PlatformInterface(self)

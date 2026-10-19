@@ -19,10 +19,12 @@ public struct ProxyState: Equatable {
     public struct Group: Equatable, Identifiable {
         public let tag: String
         public let title: String
-        public let directAllowed: Bool  // the selector is on `·all`: direct races the nodes on this network
-        public let current: String?     // the candidate in use: the urltest's pick, or the pinned candidate
-        public let auto: String?        // the urltest's own pick (the fastest by delay)
-        public let pinned: Bool         // the real check failed the urltest's pick: the selector is pinned to `current`
+        public let directAllowed: Bool  // direct is available on this network: the group goes direct, no race
+        public let selected: String     // the selector's own member: `direct·<g>`, `<g>·nodes` or a pinned node
+        public let current: String?     // the candidate in use: direct, the urltest's pick, or the pinned node
+        public let auto: String?        // the automatic choice: direct when allowed, else the urltest's pick
+        public let nodesPick: String?   // the nodes' urltest pick (the fastest node), the fallback when direct fails
+        public let pinned: Bool         // the selector is off its automatic member (the real check failed it)
         public let candidates: [Candidate]
         public var id: String { tag }
         public var currentCandidate: Candidate? { candidates.first { $0.tag == current } }
@@ -30,7 +32,8 @@ public struct ProxyState: Equatable {
     public let groups: [Group]
 
     /// Parses `GET /proxies`. Groups missing from the running config are left out. `directAllowed` (the probe's verdict
-    /// per group) says which urltest a pinned group belongs to; without it a pin to a node reads as nodes only.
+    /// per group) says whether direct is the group's automatic choice; without it, a selector on direct reads as
+    /// direct allowed and anything else as nodes only.
     public static func parse(_ data: Data, directAllowed: [String: Bool] = [:]) throws -> ProxyState {
         guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let proxies = obj["proxies"] as? [String: [String: Any]] else {
@@ -42,14 +45,15 @@ public struct ProxyState: Equatable {
         }
         var groups: [Group] = []
         for g in Plan.groups {
-            guard let sel = proxies[g.tag], let now = sel["now"] as? String else { continue }
-            let pinned = !g.isTest(now)
-            let test = !pinned ? now : (directAllowed[g.tag] == true || now == g.direct ? g.allTest : g.nodesTest)
-            guard let t = proxies[test], let all = t["all"] as? [String] else { continue }
-            let auto = t["now"] as? String
-            groups.append(Group(tag: g.tag, title: g.title, directAllowed: test == g.allTest,
-                                current: pinned ? now : auto, auto: auto, pinned: pinned,
-                                candidates: all.map { Candidate(tag: $0, delay: lastDelay($0)) }))
+            guard let sel = proxies[g.tag], let now = sel["now"] as? String,
+                  let t = proxies[g.nodesTest], let nodes = t["all"] as? [String] else { continue }
+            let nodesPick = t["now"] as? String
+            let direct = directAllowed[g.tag] ?? (now == g.direct)
+            let members = (direct && !nodes.contains(g.direct) ? [g.direct] : []) + nodes
+            groups.append(Group(tag: g.tag, title: g.title, directAllowed: direct, selected: now,
+                                current: now == g.nodesTest ? nodesPick : now, auto: direct ? g.direct : nodesPick,
+                                nodesPick: nodesPick, pinned: now != g.automatic(directAllowed: direct),
+                                candidates: members.map { Candidate(tag: $0, delay: lastDelay($0)) }))
         }
         return ProxyState(groups: groups)
     }
@@ -77,10 +81,17 @@ public enum ClashCall {
         return s.addingPercentEncoding(withAllowedCharacters: allowed) ?? s
     }
     public static let proxies = Request(method: "GET", path: "/proxies")
-    /// Select `member` in selector `group` (the probe's `·nodes` / `·all` choice).
+    /// Select `member` in selector `group` (the probe's `direct·<g>` / `·nodes` choice, or a pinned node).
     public static func select(_ group: String, _ member: String) -> Request {
         let body = String(decoding: try! JSONSerialization.data(withJSONObject: ["name": member]), as: UTF8.self)
         return Request(method: "PUT", path: "/proxies/\(enc(group))", body: body)
+    }
+    /// Delay-test one outbound (e.g. a group's direct) against `url`.
+    public static func testOne(_ outbound: String, url: String, timeoutMs: Int = 5000) -> Request {
+        var q = CharacterSet.urlQueryAllowed
+        q.remove(charactersIn: "&=?+")
+        let u = url.addingPercentEncoding(withAllowedCharacters: q) ?? url
+        return Request(method: "GET", path: "/proxies/\(enc(outbound))/delay?url=\(u)&timeout=\(timeoutMs)")
     }
     /// Delay-test every candidate of a urltest with its own URL.
     public static func test(_ urltest: String, timeoutMs: Int = 5000) -> Request {

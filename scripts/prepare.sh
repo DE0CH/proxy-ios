@@ -3,8 +3,8 @@
 # DE0CH/libbox-apple: iOS, simulator and macOS), the sing-box rule sets, a build-time snapshot of both subscriptions
 # (from env LIANGXIN_SUB_URL / GULU_SUB_URL; when a live fetch fails here, the stored snapshot in
 # LIANGXIN_SUB_SNAPSHOT / GULU_SUB_SNAPSHOT — 咕噜云's host refuses GitHub's runners) and the China node (env
-# CN_NODE_JSON: our Guangzhou server's outbounds as a sing-box profile; without it the build warns and China races
-# direct alone), all sealed into App/Bundled/sealed.json with PROXY_UNLOCK_PASSWORD (scripts/seal.py), then
+# CN_NODE_JSON: our Guangzhou server's outbounds as a sing-box profile; without it the build warns and China goes
+# direct only), all sealed into App/Bundled/sealed.json with PROXY_UNLOCK_PASSWORD (scripts/seal.py), then
 # `xcodegen generate`.
 # Never prints the subscription URLs or contents.
 set -euo pipefail
@@ -49,7 +49,7 @@ done
 if [ -n "${CN_NODE_JSON:-}" ] && printf '%s' "$CN_NODE_JSON" | python3 -c "import json,sys; assert json.load(sys.stdin)['outbounds']" 2>/dev/null; then
   printf '%s' "$CN_NODE_JSON" > "$SUBS/cn.json"; echo "cn: China node ok"
 else
-  echo "::warning::no valid CN_NODE_JSON: this build has no China node (China races direct alone)"
+  echo "::warning::no valid CN_NODE_JSON: this build has no China node (China goes direct only)"
 fi
 if [ -n "${PROXY_UNLOCK_PASSWORD:-}" ]; then
   python3 -c "import cryptography" 2>/dev/null || python3 -m pip install -q --user --break-system-packages cryptography >/dev/null

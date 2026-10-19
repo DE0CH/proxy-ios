@@ -266,8 +266,10 @@ final class TunnelController: ObservableObject {
         for _ in 0..<2 {
             await withTaskGroup(of: Void.self) { g in
                 for grp in state.groups {
-                    let test = grp.directAllowed ? Plan.group(grp.tag)!.allTest : Plan.group(grp.tag)!.nodesTest
-                    g.addTask { _ = try? await ch.call(ClashCall.test(test)) }
+                    let plan = Plan.group(grp.tag)!
+                    g.addTask { _ = try? await ch.call(ClashCall.test(plan.nodesTest)) }
+                    // direct is not in the nodes' race; its delay is measured on its own, for display only
+                    if grp.directAllowed { g.addTask { _ = try? await ch.call(ClashCall.testOne(plan.direct, url: plan.testURL)) } }
                 }
             }
         }

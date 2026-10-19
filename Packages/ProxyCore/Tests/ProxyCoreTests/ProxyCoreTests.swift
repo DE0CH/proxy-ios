@@ -41,25 +41,28 @@ final class ConfigBuilderTests: XCTestCase {
         XCTAssertEqual(ConfigBuilder.groups(of: "广州 Hysteria2", source: .cn), [Plan.china])
     }
 
-    func testEachGroupIsASelectorOfNodesAndNodesPlusDirect() throws {
+    func testEachGroupIsASelectorOfTheNodesUrltestAndDirectNeverRaced() throws {
         let (r, c) = try build(all())
         for g in Plan.groups {
             let sel = outbound(c, g.tag)!
             XCTAssertEqual(sel["type"] as? String, "selector")
-            // the two urltests, then every candidate itself so the real check can pin one
-            XCTAssertEqual(sel["outbounds"] as? [String], [g.nodesTest, g.allTest] + r.groups[g.tag]! + [g.direct])
+            // the nodes' urltest, every node itself so the real check can pin one, and direct as a member of its own
+            XCTAssertEqual(sel["outbounds"] as? [String], [g.nodesTest] + r.groups[g.tag]! + [g.direct])
             let check = outbound(c, g.checkSelector)!
             XCTAssertEqual(check["type"] as? String, "selector")
             XCTAssertEqual(check["outbounds"] as? [String], r.groups[g.tag]! + [g.direct])
             XCTAssertEqual(sel["default"] as? String, g.nodesTest)
-            let nodes = outbound(c, g.nodesTest)!, both = outbound(c, g.allTest)!
+            let nodes = outbound(c, g.nodesTest)!
             XCTAssertEqual(nodes["type"] as? String, "urltest")
             XCTAssertEqual(nodes["outbounds"] as? [String], r.groups[g.tag])
-            XCTAssertEqual(both["outbounds"] as? [String], r.groups[g.tag]! + [g.direct])
-            XCTAssertEqual(both["url"] as? String, g.testURL)
+            XCTAssertEqual(nodes["url"] as? String, g.testURL)
             XCTAssertEqual(outbound(c, g.direct)?["type"] as? String, "direct")
         }
-        XCTAssertEqual(outbound(c, "China·all")?["url"] as? String, "http://connect.rom.miui.com/generate_204")
+        // no urltest anywhere has direct as a member: a node can never out-race a working direct route
+        for o in c["outbounds"] as! [[String: Any]] where o["type"] as? String == "urltest" {
+            XCTAssertFalse((o["outbounds"] as! [String]).contains { $0.hasPrefix(Plan.directPrefix) }, "\(o["tag"]!)")
+        }
+        XCTAssertEqual(outbound(c, "China·nodes")?["url"] as? String, "http://connect.rom.miui.com/generate_204")
     }
 
     func testRulesAndDNS() throws {
@@ -85,11 +88,11 @@ final class ConfigBuilderTests: XCTestCase {
         XCTAssertEqual(paths, ["$RULES/geosite-cn.srs", "$RULES/geoip-cn.srs", "$RULES/geosite-category-ai-!cn.srs"])
     }
 
-    func testGroupWithoutNodesRacesDirectAlone() throws {
+    func testGroupWithoutNodesGoesDirectOnly() throws {
         let (r, c) = try build([.liangxin: fixture("liangxin.json")])
         XCTAssertNil(r.groups[Plan.china])
         XCTAssertEqual(outbound(c, "China·nodes")?["outbounds"] as? [String], ["direct·China"])
-        XCTAssertEqual(outbound(c, "China")?["default"] as? String, "China·all")
+        XCTAssertEqual(outbound(c, "China")?["default"] as? String, "China·nodes")
         XCTAssertFalse(r.warnings.isEmpty)
     }
 
@@ -126,9 +129,10 @@ final class NetworkProbeTests: XCTestCase {
 
     func testSelectionsFollowTheVerdicts() {
         let r = ProbeResult.mock("China=0,International=1,AI=0")
-        XCTAssertEqual(r.selections.map(\.member), ["China·nodes", "International·all", "AI·nodes"])
+        // direct valid = the selector goes straight to direct (no urltest, so no race); invalid = the nodes' urltest
+        XCTAssertEqual(r.selections.map(\.member), ["China·nodes", "direct·International", "AI·nodes"])
         XCTAssertEqual(ClashCall.apply(r)[1].path, "/proxies/International")
-        XCTAssertEqual(ClashCall.apply(r)[1].body, "{\"name\":\"International·all\"}")
+        XCTAssertEqual(ClashCall.apply(r)[1].body, "{\"name\":\"direct·International\"}")
         // an empty/garbled spec = nothing valid
         XCTAssertEqual(ProbeResult.mock("").selections.map(\.member), ["China·nodes", "International·nodes", "AI·nodes"])
     }
@@ -140,8 +144,12 @@ final class ProxyStateTests: XCTestCase {
         XCTAssertEqual(s.groups.map(\.tag), [Plan.china, Plan.intl, Plan.ai])
         let intl = s.groups[1]
         XCTAssertTrue(intl.directAllowed)
-        XCTAssertTrue(intl.candidates.contains { $0.isDirect && $0.name == "Direct" })
-        XCTAssertNotNil(intl.current)
+        XCTAssertEqual(intl.candidates.first?.tag, "direct·International")
+        XCTAssertEqual(intl.candidates.first?.name, "Direct")
+        XCTAssertEqual(intl.current, "direct·International")
+        XCTAssertEqual(intl.auto, "direct·International")
+        XCTAssertEqual(intl.nodesPick, "良心云 🇭🇰香港高速01|BGP|CMCU")
+        XCTAssertFalse(intl.pinned)
         let cn = s.groups[0]
         XCTAssertFalse(cn.directAllowed)
         XCTAssertEqual(cn.candidates.map(\.name), ["🇨🇳回国 广州|倍率 x3", "广州 Hysteria2", "广州 VLESS-Reality"])
@@ -149,7 +157,9 @@ final class ProxyStateTests: XCTestCase {
 
     func testClashCallPathsAreEncoded() {
         XCTAssertEqual(ClashCall.select("国际", "x").path, "/proxies/%E5%9B%BD%E9%99%85")
-        XCTAssertTrue(ClashCall.test("AI·all").path.hasPrefix("/group/AI%C2%B7all/delay"))
+        XCTAssertTrue(ClashCall.test("AI·nodes").path.hasPrefix("/group/AI%C2%B7nodes/delay"))
+        XCTAssertEqual(ClashCall.testOne("direct·AI", url: "http://www.gstatic.com/generate_204").path,
+                       "/proxies/direct%C2%B7AI/delay?url=http://www.gstatic.com/generate_204&timeout=5000")
     }
 }
 
@@ -211,6 +221,53 @@ final class HealthCheckTests: XCTestCase {
         XCTAssertEqual(f.selected["International"], "International·nodes")
     }
 
+    func testDirectAvailableIsUsedEvenWhenANodeIsFaster() async throws {
+        // node b answers in 10 ms, direct in 400 ms: direct still wins, and no node is even tried
+        let f = FakeClash(auto: ["International": "b"], delays: ["a": 300, "b": 10, "c": 200, "direct·International": 400])
+        let r = await f.checker(bad: []).run(directAllowed: ["International": true])
+        let e = r.entries[Plan.intl]!
+        XCTAssertTrue(e.passed); XCTAssertFalse(e.pinned)
+        XCTAssertEqual(e.candidate, "direct·International")
+        XCTAssertEqual(f.selected["International"], "direct·International")
+        XCTAssertEqual(Set(f.loads.filter { ["a", "b", "c"].contains($0) }), [])
+        let g = try ProxyState.parse(f.proxies(), directAllowed: ["International": true]).groups.first { $0.tag == Plan.intl }!
+        XCTAssertEqual(g.current, "direct·International")
+        XCTAssertFalse(g.pinned)
+    }
+
+    func testDirectUnavailableFallsBackToTheNodes() async throws {
+        // direct is valid by the probe but fails the real check: the fastest node takes over
+        let f = FakeClash(auto: ["International": "b"], delays: ["a": 300, "b": 10, "c": 200, "direct·International": 400])
+        f.select("International", "direct·International")
+        let r = await f.checker(bad: ["direct·International"]).run(directAllowed: ["International": true])
+        let e = r.entries[Plan.intl]!
+        XCTAssertTrue(e.passed); XCTAssertTrue(e.pinned)
+        XCTAssertEqual(e.candidate, "b")
+        XCTAssertEqual(e.failed, ["direct·International"])
+        XCTAssertEqual(f.selected["International"], "International·nodes")
+        XCTAssertEqual(f.loads.filter { $0 == "direct·International" }.count, 2)   // one lost request is not a failure
+        let g = try ProxyState.parse(f.proxies(), directAllowed: ["International": true]).groups.first { $0.tag == Plan.intl }!
+        XCTAssertEqual(g.current, "b")
+        XCTAssertTrue(g.pinned)
+    }
+
+    func testDirectInvalidOnThisNetworkUsesTheNodesWithoutTryingDirect() async {
+        let f = FakeClash(auto: ["International": "b"], delays: ["a": 300, "b": 100, "c": 200, "direct·International": 5])
+        let r = await f.checker(bad: []).run(directAllowed: ["International": false])
+        XCTAssertEqual(r.entries[Plan.intl]!.candidate, "b")
+        XCTAssertFalse(f.loads.contains("direct·International"))
+        XCTAssertNil(f.selected["International"])
+    }
+
+    func testBackToDirectOnceItPassesAgain() async {
+        let f = FakeClash(auto: ["International": "b"], delays: ["a": 300, "b": 10, "c": 200])
+        f.select("International", "International·nodes")    // fell back earlier
+        let r = await f.checker(bad: []).run(directAllowed: ["International": true])
+        XCTAssertFalse(r.entries[Plan.intl]!.pinned)
+        XCTAssertEqual(r.entries[Plan.intl]!.candidate, "direct·International")
+        XCTAssertEqual(f.selected["International"], "direct·International")
+    }
+
     func testNothingPassesLeavesTheUrltest() async {
         let f = FakeClash(auto: ["International": "b"], delays: ["a": 300, "b": 100, "c": 200])
         f.select("International", "c")
@@ -239,9 +296,9 @@ final class FakeClash: @unchecked Sendable {
         var p: [String: Any] = [:]
         for g in Plan.groups {
             let nodes = g.tag == Plan.intl ? ["a", "b", "c"] : [g.direct]
-            p[g.tag] = ["type": "Selector", "now": selected[g.tag] ?? g.nodesTest, "all": [g.nodesTest, g.allTest] + nodes]
+            let members = [g.nodesTest] + nodes + (nodes.contains(g.direct) ? [] : [g.direct])
+            p[g.tag] = ["type": "Selector", "now": selected[g.tag] ?? g.nodesTest, "all": members]
             p[g.nodesTest] = ["type": "URLTest", "now": auto[g.tag] ?? nodes[0], "all": nodes]
-            p[g.allTest] = ["type": "URLTest", "now": auto[g.tag] ?? nodes[0], "all": nodes + [g.direct]]
             p[g.checkSelector] = ["type": "Selector", "now": selected[g.checkSelector] ?? g.direct, "all": nodes + [g.direct]]
         }
         for (t, d) in delays { p[t] = ["type": "VLESS", "history": [["delay": d]]] }

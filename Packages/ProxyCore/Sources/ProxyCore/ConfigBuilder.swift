@@ -1,22 +1,23 @@
 import Foundation
 
-/// The routing plan: three groups, each "the fastest valid candidate", where going direct is one candidate like any
-/// node and is valid only when this network's own exit already lands in the right place:
-///   China (geosite-cn / geoip-cn)       candidates: the China node(s), direct   valid: exits in mainland China
-///   AI (geosite category-ai-!cn)        candidates: airport nodes, direct       valid: exits outside mainland China and HK
-///   International (everything else)     candidates: airport nodes, direct       valid: exits outside mainland China
-/// Node validity is known from the node's name (region); direct's validity is measured by `NetworkProbe` on every
-/// network change. Each group is a selector of two urltests, `<group>·nodes` and `<group>·all` (= nodes + direct);
-/// the probe's verdict picks one, so a network change never reloads sing-box. The selector also lists every candidate
-/// itself: when the urltest's pick fails the real check (`HealthCheck`: a real page through it, from a valid exit),
-/// the extension pins the selector to the fastest candidate that passes, and back to the urltest once its pick passes.
-/// The check goes through `check·<group>` (a selector of the same candidates) behind a loopback mixed inbound per group.
+/// The routing plan: three groups. Going direct always wins when it is available: direct is never raced against the
+/// nodes, and the nodes (the fastest valid one) are used only when direct is not valid on this network or fails:
+///   China (geosite-cn / geoip-cn)       nodes: the China node(s)   direct valid: exits in mainland China
+///   AI (geosite category-ai-!cn)        nodes: airport nodes       direct valid: exits outside mainland China and HK
+///   International (everything else)     nodes: airport nodes       direct valid: exits outside mainland China
+/// Node validity is known from the node's name (region); direct's availability is measured by `NetworkProbe` on every
+/// network change and by the real check (`HealthCheck`) every round. Each group is a selector whose automatic member
+/// is `direct·<group>` when direct is available, else the urltest `<group>·nodes` (the nodes race each other only), so
+/// a network change never reloads sing-box. The selector also lists every node itself: when the urltest's pick fails
+/// the real check (a real page through it, from a valid exit), the extension pins the selector to the fastest node that
+/// passes, and back once the automatic member passes again. When direct fails the real check, the group falls back to
+/// the nodes until direct passes again. The check goes through `check·<group>` (a selector of the same candidates)
+/// behind a loopback mixed inbound per group.
 public enum Plan {
     public static let china = "China"
     public static let intl = "International"
     public static let ai = "AI"
     public static let nodesSuffix = "·nodes"
-    public static let allSuffix = "·all"
     public static let directPrefix = "direct·"
     public static let checkPrefix = "check·"
     public static let checkInPrefix = "check-in·"
@@ -26,14 +27,13 @@ public enum Plan {
         public let title: String
         public let testURL: String
         public var nodesTest: String { tag + Plan.nodesSuffix }
-        public var allTest: String { tag + Plan.allSuffix }
-        /// The direct outbound this group races (one per group, so each keeps its own delay history and test URL).
+        /// This group's direct outbound (one per group, so each keeps its own delay history).
         public var direct: String { Plan.directPrefix + tag }
         /// The selector the real check points at one candidate at a time, and the inbound that leads to it.
         public var checkSelector: String { Plan.checkPrefix + tag }
         public var checkInbound: String { Plan.checkInPrefix + tag }
-        /// Whether a selector member is one of this group's urltests (automatic) rather than a pinned candidate.
-        public func isTest(_ member: String) -> Bool { member == nodesTest || member == allTest }
+        /// The selector member used when nothing is pinned: direct whenever it is available, else the nodes' urltest.
+        public func automatic(directAllowed: Bool) -> String { directAllowed ? direct : nodesTest }
     }
 
     /// Display order. China's delay is measured to a mainland URL; the others to gstatic (unreachable from a
@@ -143,7 +143,7 @@ public enum ConfigBuilder {
     }
 
     /// Builds the full config. `subscriptions` maps each source to its sing-box JSON; a missing source just leaves
-    /// its nodes out. A group with no node candidates races direct alone.
+    /// its nodes out. A group with no node candidates goes direct only.
     public static func build(subscriptions: [Plan.Source: Data], options: BuildOptions) throws -> BuildResult {
         var warnings: [String] = []
         var groupNodes: [String: [String]] = [:]
@@ -169,17 +169,16 @@ public enum ConfigBuilder {
         var outbounds: [[String: Any]] = []
         for g in Plan.groups {
             let nodes = groupNodes[g.tag] ?? []
-            // without nodes, "·nodes" would be empty: both tests then race direct alone
-            let nodesMembers = nodes.isEmpty ? [g.direct] : nodes
-            outbounds.append(["type": "selector", "tag": g.tag, "outbounds": [g.nodesTest, g.allTest] + nodes + [g.direct],
-                              "default": nodes.isEmpty ? g.allTest : g.nodesTest, "interrupt_exist_connections": true])
+            // direct is a selector member of its own, never a urltest member: it is chosen outright when available
+            // (the probe / the real check put the selector on it), so no node can out-race it. Without nodes,
+            // "·nodes" would be empty: it then holds direct alone.
+            outbounds.append(["type": "selector", "tag": g.tag, "outbounds": [g.nodesTest] + nodes + [g.direct],
+                              "default": g.nodesTest, "interrupt_exist_connections": true])
             outbounds.append(["type": "selector", "tag": g.checkSelector, "outbounds": nodes + [g.direct],
                               "default": g.direct, "interrupt_exist_connections": true])
-            for (tag, members) in [(g.nodesTest, nodesMembers), (g.allTest, nodes + [g.direct])] {
-                outbounds.append(["type": "urltest", "tag": tag, "outbounds": members, "url": g.testURL,
-                                  "interval": options.urlTestInterval, "tolerance": options.urlTestTolerance,
-                                  "interrupt_exist_connections": true])
-            }
+            outbounds.append(["type": "urltest", "tag": g.nodesTest, "outbounds": nodes.isEmpty ? [g.direct] : nodes,
+                              "url": g.testURL, "interval": options.urlTestInterval,
+                              "tolerance": options.urlTestTolerance, "interrupt_exist_connections": true])
         }
         outbounds += nodeOutbounds
         outbounds.append(["type": "direct", "tag": "direct"])

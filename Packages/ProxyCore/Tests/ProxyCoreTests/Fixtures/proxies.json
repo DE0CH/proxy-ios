@@ -5,12 +5,9 @@
                 "International",
                 "China",
                 "China·nodes",
-                "China·all",
                 "International·nodes",
-                "International·all",
                 "AI",
                 "AI·nodes",
-                "AI·all",
                 "良心云 🇭🇰香港高速01|BGP|CMCU",
                 "良心云 🇭🇰香港高速02|BGP|CMCU",
                 "良心云 🇸🇬新加坡专线01|BGP|流媒体",
@@ -38,7 +35,10 @@
             "now": "China·nodes",
             "all": [
                 "China·nodes",
-                "China·all"
+                "咕噜 🇨🇳回国 广州|倍率 x3",
+                "回国 广州 Hysteria2",
+                "回国 广州 VLESS-Reality",
+                "direct·China"
             ]
         },
         "China·nodes": {
@@ -53,24 +53,6 @@
                 "回国 广州 VLESS-Reality"
             ]
         },
-        "China·all": {
-            "type": "URLTest",
-            "name": "China·all",
-            "udp": true,
-            "history": [
-                {
-                    "time": "2026-10-13T12:06:46.612107969Z",
-                    "delay": 1029
-                }
-            ],
-            "now": "direct·China",
-            "all": [
-                "咕噜 🇨🇳回国 广州|倍率 x3",
-                "回国 广州 Hysteria2",
-                "回国 广州 VLESS-Reality",
-                "direct·China"
-            ]
-        },
         "International": {
             "type": "Selector",
             "name": "International",
@@ -81,10 +63,19 @@
                     "delay": 37
                 }
             ],
-            "now": "International·all",
+            "now": "direct·International",
             "all": [
                 "International·nodes",
-                "International·all"
+                "良心云 🇭🇰香港高速01|BGP|CMCU",
+                "良心云 🇭🇰香港高速02|BGP|CMCU",
+                "良心云 🇸🇬新加坡专线01|BGP|流媒体",
+                "良心云 🇯🇵日本高速01|CTCU|0.5x",
+                "咕噜 🇭🇰香港01|倍率 x3",
+                "咕噜 🇭🇰香港02|倍率 x3",
+                "咕噜 🇸🇬新加坡01|倍率 x3",
+                "咕噜 🇯🇵日本|倍率 x3",
+                "咕噜 🇲🇴澳门|倍率 x3",
+                "direct·International"
             ]
         },
         "International·nodes": {
@@ -105,30 +96,6 @@
                 "咕噜 🇲🇴澳门|倍率 x3"
             ]
         },
-        "International·all": {
-            "type": "URLTest",
-            "name": "International·all",
-            "udp": true,
-            "history": [
-                {
-                    "time": "2026-10-13T12:06:45.620002776Z",
-                    "delay": 37
-                }
-            ],
-            "now": "direct·International",
-            "all": [
-                "良心云 🇭🇰香港高速01|BGP|CMCU",
-                "良心云 🇭🇰香港高速02|BGP|CMCU",
-                "良心云 🇸🇬新加坡专线01|BGP|流媒体",
-                "良心云 🇯🇵日本高速01|CTCU|0.5x",
-                "咕噜 🇭🇰香港01|倍率 x3",
-                "咕噜 🇭🇰香港02|倍率 x3",
-                "咕噜 🇸🇬新加坡01|倍率 x3",
-                "咕噜 🇯🇵日本|倍率 x3",
-                "咕噜 🇲🇴澳门|倍率 x3",
-                "direct·International"
-            ]
-        },
         "AI": {
             "type": "Selector",
             "name": "AI",
@@ -137,7 +104,11 @@
             "now": "AI·nodes",
             "all": [
                 "AI·nodes",
-                "AI·all"
+                "良心云 🇸🇬新加坡专线01|BGP|流媒体",
+                "良心云 🇯🇵日本高速01|CTCU|0.5x",
+                "咕噜 🇸🇬新加坡01|倍率 x3",
+                "咕噜 🇯🇵日本|倍率 x3",
+                "direct·AI"
             ]
         },
         "AI·nodes": {
@@ -151,25 +122,6 @@
                 "良心云 🇯🇵日本高速01|CTCU|0.5x",
                 "咕噜 🇸🇬新加坡01|倍率 x3",
                 "咕噜 🇯🇵日本|倍率 x3"
-            ]
-        },
-        "AI·all": {
-            "type": "URLTest",
-            "name": "AI·all",
-            "udp": true,
-            "history": [
-                {
-                    "time": "2026-10-13T12:06:45.617451835Z",
-                    "delay": 34
-                }
-            ],
-            "now": "direct·AI",
-            "all": [
-                "良心云 🇸🇬新加坡专线01|BGP|流媒体",
-                "良心云 🇯🇵日本高速01|CTCU|0.5x",
-                "咕噜 🇸🇬新加坡01|倍率 x3",
-                "咕噜 🇯🇵日本|倍率 x3",
-                "direct·AI"
             ]
         },
         "良心云 🇭🇰香港高速01|BGP|CMCU": {

@@ -6,7 +6,7 @@ import FoundationNetworking
 /// Where this network's own exit lands for each group, measured with direct requests (in the packet tunnel the
 /// extension's own traffic bypasses the tunnel, so these see the network as it is: a plain line, or a router that
 /// already splits China / international / AI). Direct is a valid candidate of a group only when its probe answers
-/// from a valid place; a probe that fails makes direct invalid. Only countries/regions are kept, never IPs.
+/// from a valid place; a probe that fails makes direct invalid. When direct is valid the group goes direct outright. Only countries/regions are kept, never IPs.
 public struct ProbeResult: Codable, Equatable {
     public struct Verdict: Codable, Equatable {
         public let valid: Bool
@@ -17,9 +17,10 @@ public struct ProbeResult: Codable, Equatable {
     public let at: Date
     public init(verdicts: [String: Verdict], at: Date = Date()) { self.verdicts = verdicts; self.at = at }
 
-    /// The selector choice per group: `·all` (direct races the nodes) when direct is valid here, else `·nodes`.
+    /// The selector choice per group: `direct·<group>` (always direct, no race) when direct is valid here, else
+    /// `·nodes` (the fastest node).
     public var selections: [(group: String, member: String)] {
-        Plan.groups.map { g in (g.tag, verdicts[g.tag]?.valid == true ? g.allTest : g.nodesTest) }
+        Plan.groups.map { g in (g.tag, g.automatic(directAllowed: verdicts[g.tag]?.valid == true)) }
     }
 
     /// PROXY_MOCK_PROBE for the simulator replica, e.g. "China=0,International=1,AI=1".

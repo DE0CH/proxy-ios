@@ -193,8 +193,8 @@ struct GroupSection: View {
             .accessibilityIdentifier("using-\(group.tag)")
             .accessibilityValue(group.currentCandidate?.name ?? "")
             HealthLine(group: group, health: health)
-            Text(group.directAllowed ? "Direct is valid on this network and races the nodes."
-                                     : "Direct is not valid on this network: nodes only.")
+            Text(group.directAllowed ? "Direct is valid on this network: always direct (nodes only if it fails)."
+                                     : "Direct is not valid on this network: the fastest node.")
                 .font(.caption).foregroundStyle(.secondary)
                 .accessibilityIdentifier("direct-\(group.tag)")
                 .accessibilityValue(group.directAllowed ? "allowed" : "not allowed")

@@ -7,15 +7,18 @@ import FoundationNetworking
 /// real traffic (TLS through it breaks, the exit moved to the wrong country, the server answers but forwards
 /// nothing). Every few minutes, after every network probe and on demand, each group's candidate in use loads its
 /// group's real page through `check·<group>` (`NetworkProbe.verdict`: the page must answer with its content, and
-/// from a place valid for the group). If the urltest's pick fails (twice in a row), the group's selector is pinned
-/// to the fastest other candidate that passes; when the pick passes again the selector goes back to the urltest.
+/// from a place valid for the group). Direct comes first: where the probe found it valid, direct is checked and, if
+/// it passes, the group goes direct (never raced against the nodes). Direct failing (twice in a row) makes the group
+/// fall back to the nodes until a later round finds direct passing again. Among the nodes, if the urltest's pick
+/// fails (twice in a row), the selector is pinned to the fastest other node that passes; when the automatic choice
+/// passes again the selector goes back to it.
 public struct HealthReport: Codable, Equatable {
     public struct Entry: Codable, Equatable {
         public let group: String
         public let candidate: String?   // what the group uses after this round
         public let passed: Bool         // `candidate` passed the real check
-        public let pinned: Bool         // the urltest's pick failed and `candidate` is pinned instead
-        public let failed: [String]     // candidates that failed this round (the urltest's pick first)
+        public let pinned: Bool         // the automatic choice (direct, else the urltest's pick) failed: `candidate` instead
+        public let failed: [String]     // candidates that failed this round (the automatic choice first)
         public let exit: String?        // the passing candidate's exit (country / mainland region, never an IP)
         public let ms: Int?             // its page load time
         public let at: Date
@@ -36,8 +39,10 @@ public struct HealthCheck {
         public let ms: Int?
         public init(passed: Bool, exit: String?, ms: Int?) { self.passed = passed; self.exit = exit; self.ms = ms }
     }
-    /// Seconds between rounds while the tunnel runs.
-    public static let interval: UInt64 = 180
+    /// Seconds between rounds while the tunnel runs. Also how long a group can stay on a direct route that broke
+    /// without a network change (a network change re-probes within seconds); a round on a working route costs one
+    /// small page per group.
+    public static let interval: UInt64 = 60
     /// At most this many other candidates are tried when the pick fails.
     public static let maxTries = 6
 
@@ -97,27 +102,39 @@ public struct HealthCheck {
     }
 
     func round(_ group: ProxyState.Group) async -> HealthReport.Entry? {
-        guard let plan = Plan.group(group.tag), let auto = group.auto else { return nil }
-        let test = group.directAllowed ? plan.allTest : plan.nodesTest
+        guard let plan = Plan.group(group.tag) else { return nil }
         var failed: [String] = []
         func entry(_ c: String?, _ r: Result?, pinned: Bool) -> HealthReport.Entry {
             HealthReport.Entry(group: group.tag, candidate: c, passed: r?.passed ?? false, pinned: pinned, failed: failed,
                                exit: r?.exit, ms: r?.ms)
         }
-        // 1. the urltest's pick: passing un-pins
-        let a = await checkTwice(group, auto)
-        if a.passed {
-            if group.pinned { _ = await call(ClashCall.select(plan.tag, test)) }
-            return entry(auto, a, pinned: false)
+        func use(_ member: String) async { if group.selected != member { _ = await call(ClashCall.select(plan.tag, member)) } }
+        // 1. direct, where this network allows it: passing means the group goes direct, whatever the nodes measure
+        if group.directAllowed {
+            let d = await checkTwice(group, plan.direct)
+            if d.passed {
+                await use(plan.direct)
+                return entry(plan.direct, d, pinned: false)
+            }
+            failed.append(plan.direct)
         }
-        failed.append(auto)
-        // 2. a candidate pinned earlier that still passes stays
-        if group.pinned, let cur = group.current, cur != auto, group.candidates.contains(where: { $0.tag == cur }) {
+        // 2. the nodes' urltest pick (the fallback when direct is unavailable or failed)
+        if let pick = group.nodesPick, !failed.contains(pick) {
+            let a = await checkTwice(group, pick)
+            if a.passed {
+                await use(plan.nodesTest)
+                return entry(pick, a, pinned: group.directAllowed)
+            }
+            failed.append(pick)
+        }
+        // 3. a node pinned earlier that still passes stays
+        let cur = group.selected
+        if cur != plan.nodesTest, cur != plan.direct, !failed.contains(cur), group.candidates.contains(where: { $0.tag == cur }) {
             let p = await checkTwice(group, cur)
             if p.passed { return entry(cur, p, pinned: true) }
             failed.append(cur)
         }
-        // 3. the fastest others by their last delay (tested ones first, timeouts last)
+        // 4. the fastest others by their last delay (tested ones first, timeouts last)
         let order = group.candidates.filter { !failed.contains($0.tag) }.sorted { x, y in
             func key(_ d: Int?) -> Int { d.map { $0 > 0 ? $0 : Int.max - 1 } ?? Int.max }
             return key(x.delay) < key(y.delay)
@@ -125,14 +142,15 @@ public struct HealthCheck {
         for c in order.prefix(Self.maxTries) {
             let r = await check(group, c.tag)
             if r.passed {
-                _ = await call(ClashCall.select(plan.tag, c.tag))
+                await use(c.tag)
                 return entry(c.tag, r, pinned: true)
             }
             failed.append(c.tag)
         }
-        // 4. nothing passed: leave the choice to the urltest
-        if group.pinned { _ = await call(ClashCall.select(plan.tag, test)) }
-        return entry(auto, nil, pinned: false)
+        // 5. nothing passed: back to the automatic choice (direct where allowed)
+        let automatic = plan.automatic(directAllowed: group.directAllowed)
+        await use(automatic)
+        return entry(group.directAllowed ? plan.direct : group.nodesPick, nil, pinned: false)
     }
 
     /// Loads `group`'s real page through the loopback check inbound on `port` (an HTTP proxy; HTTPS goes through it

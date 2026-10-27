@@ -41,6 +41,16 @@ final class ConfigBuilderTests: XCTestCase {
         XCTAssertEqual(ConfigBuilder.groups(of: "广州 Hysteria2", source: .cn), [Plan.china])
     }
 
+    func testTheAliyunHKBoxIsAnInternationalCandidateOnly() throws {
+        let hk = Data(#"{"outbounds":[{"type":"hysteria2","tag":"HK-Hysteria2","server":"hk.example","server_port":4443,"password":"x","tls":{"enabled":true,"server_name":"hk.example"}}]}"#.utf8)
+        var subs = try all()
+        subs[.hk] = hk
+        let (r, _) = try build(subs)
+        XCTAssertTrue(r.groups[Plan.intl]!.contains("阿里 HK-Hysteria2"), "races the airports in International")
+        XCTAssertFalse(r.groups[Plan.ai]!.contains("阿里 HK-Hysteria2"), "AI services refuse Hong Kong")
+        XCTAssertFalse(r.groups[Plan.china]!.contains("阿里 HK-Hysteria2"))
+    }
+
     func testEachGroupIsASelectorOfTheNodesUrltestAndDirectNeverRaced() throws {
         let (r, c) = try build(all())
         for g in Plan.groups {

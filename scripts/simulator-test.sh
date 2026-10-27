@@ -16,6 +16,7 @@ DEVICE=${DEVICE:-iPhone 17}
 CFG="$PRIVATE/sb"; mkdir -p "$CFG"; SECRET=$(uuidgen)
 CN_ARGS=(); EXPECT_CN=0
 if [ -f build/subs/cn.json ]; then CN_ARGS=(--cn build/subs/cn.json); EXPECT_CN=1; fi
+if [ -f build/subs/hk.json ]; then CN_ARGS+=(--hk build/subs/hk.json); fi
 Packages/ProxyCore/.build/release/proxy-config --liangxin build/subs/liangxin.json \
   --gulu build/subs/gulu.json "${CN_ARGS[@]}" --rules "$PWD/PacketTunnel/Rules" --data "$CFG" --secret "$SECRET" \
   --mixed 17891 --controller 127.0.0.1:19090 --check-port-base 17901 > "$CFG/config.json"   # stderr: per-region node counts only

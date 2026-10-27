@@ -5,7 +5,7 @@ import FoundationNetworking
 import ProxyCore
 
 // proxy-config: runs the app's ConfigBuilder on a desktop, for end-to-end tests with a desktop sing-box.
-// Usage: proxy-config --liangxin FILE --gulu FILE [--cn FILE] --rules DIR --data DIR --secret S [--mixed PORT]
+// Usage: proxy-config --liangxin FILE --gulu FILE [--cn FILE] [--hk FILE] --rules DIR --data DIR --secret S [--mixed PORT]
 //                     [--controller HOST:PORT] [--check-port-base PORT]
 //        proxy-config --probe        (the network probe from this machine: verdicts and countries only, no IPs)
 //        proxy-config --health --controller HOST:PORT --secret S [--check-port-base PORT] [--direct China=0,…]
@@ -68,6 +68,7 @@ var subs: [Plan.Source: Data] = [:]
 if let f = opt("--liangxin") { subs[.liangxin] = FileManager.default.contents(atPath: f) }
 if let f = opt("--gulu") { subs[.gulu] = FileManager.default.contents(atPath: f) }
 if let f = opt("--cn") { subs[.cn] = FileManager.default.contents(atPath: f) }
+if let f = opt("--hk") { subs[.hk] = FileManager.default.contents(atPath: f) }
 var o = BuildOptions(clashSecret: opt("--secret") ?? "test")
 if let r = opt("--rules") { o.rulesDir = r }
 if let d = opt("--data") { o.dataDir = d }

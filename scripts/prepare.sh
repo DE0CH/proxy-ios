@@ -4,7 +4,8 @@
 # (from env LIANGXIN_SUB_URL / GULU_SUB_URL; when a live fetch fails here, the stored snapshot in
 # LIANGXIN_SUB_SNAPSHOT / GULU_SUB_SNAPSHOT — 咕噜云's host refuses GitHub's runners) and the China node (env
 # CN_NODE_JSON: our Guangzhou server's outbounds as a sing-box profile; without it the build warns and China goes
-# direct only), all sealed into App/Bundled/sealed.json with PROXY_UNLOCK_PASSWORD (scripts/seal.py), then
+# direct only) and the Aliyun HK box (env HK_NODE_JSON: its two nodes as a sing-box profile, written by claude-env's
+# scripts/hk-proxy/singbox-nodes.py; optional, International only), all sealed into App/Bundled/sealed.json with PROXY_UNLOCK_PASSWORD (scripts/seal.py), then
 # `xcodegen generate`.
 # Never prints the subscription URLs or contents.
 set -euo pipefail
@@ -50,6 +51,11 @@ if [ -n "${CN_NODE_JSON:-}" ] && printf '%s' "$CN_NODE_JSON" | python3 -c "impor
   printf '%s' "$CN_NODE_JSON" > "$SUBS/cn.json"; echo "cn: China node ok"
 else
   echo "::warning::no valid CN_NODE_JSON: this build has no China node (China goes direct only)"
+fi
+if [ -n "${HK_NODE_JSON:-}" ] && printf '%s' "$HK_NODE_JSON" | python3 -c "import json,sys; assert json.load(sys.stdin)['outbounds']" 2>/dev/null; then
+  printf '%s' "$HK_NODE_JSON" > "$SUBS/hk.json"; echo "hk: Aliyun HK box ok"
+else
+  echo "::warning::no valid HK_NODE_JSON: this build has no Aliyun HK box nodes"
 fi
 if [ -n "${PROXY_UNLOCK_PASSWORD:-}" ]; then
   python3 -c "import cryptography" 2>/dev/null || python3 -m pip install -q --user --break-system-packages cryptography >/dev/null

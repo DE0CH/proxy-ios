@@ -4,7 +4,7 @@ import Foundation
 /// nodes, and the nodes (the fastest valid one) are used only when direct is not valid on this network or fails:
 ///   China (geosite-cn / geoip-cn)       nodes: the China node(s)   direct valid: exits in mainland China
 ///   AI (geosite category-ai-!cn)        nodes: airport nodes       direct valid: exits outside mainland China and HK
-///   International (everything else)     nodes: airport nodes       direct valid: exits outside mainland China
+///   International (everything else)     nodes: airport nodes + the Aliyun HK box   direct valid: exits outside mainland China
 /// Node validity is known from the node's name (region); direct's availability is measured by `NetworkProbe` on every
 /// network change and by the real check (`HealthCheck`) every round. Each group is a selector whose automatic member
 /// is `direct·<group>` when direct is available, else the urltest `<group>·nodes` (the nodes race each other only), so
@@ -46,13 +46,14 @@ public enum Plan {
     public static func group(_ tag: String) -> Group? { groups.first { $0.tag == tag } }
 
     public enum Source: String, CaseIterable {
-        case liangxin, gulu, cn
+        case liangxin, gulu, cn, hk
         /// Prefix put in front of every node tag so the sources' tags never clash.
         public var prefix: String {
             switch self {
             case .liangxin: return "良心云 "
             case .gulu: return "咕噜 "
             case .cn: return "回国 "
+            case .hk: return "阿里 "
             }
         }
         public var name: String {
@@ -60,6 +61,7 @@ public enum Plan {
             case .liangxin: return "良心云"
             case .gulu: return "咕噜云"
             case .cn: return "China node"
+            case .hk: return "Aliyun HK box"
             }
         }
         /// Nodes of this source that are used at all (咕噜云: only its x3 lines, as on the router).
@@ -138,6 +140,7 @@ public enum ConfigBuilder {
 
     /// Which groups a node (by its name in the subscription) is a candidate for.
     static func groups(of raw: String, source: Plan.Source) -> [String] {
+        if source == .hk { return [Plan.intl] }   // our Aliyun HK box: Hong Kong, which AI services refuse
         if source == .cn || (matches(raw, Plan.mainland) && !matches(raw, Plan.notMainland)) { return [Plan.china] }
         return matches(raw, Plan.aiRefused) ? [Plan.intl] : [Plan.intl, Plan.ai]
     }
@@ -149,7 +152,10 @@ public enum ConfigBuilder {
         var groupNodes: [String: [String]] = [:]
         var nodeOutbounds: [[String: Any]] = []
         for source in Plan.Source.allCases {
-            guard let data = subscriptions[source] else { warnings.append("\(source.name): no subscription"); continue }
+            guard let data = subscriptions[source] else {
+                if source != .hk { warnings.append("\(source.name): no subscription") }   // the HK box is optional
+                continue
+            }
             let nodes: [[String: Any]]
             do { nodes = try ConfigBuilder.nodes(from: data, source: source) } catch { warnings.append("\(error)"); continue }
             for var n in nodes {

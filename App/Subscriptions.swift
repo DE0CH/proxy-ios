@@ -1,12 +1,16 @@
 import Foundation
 import ProxyCore
 
-/// Fetches the two airport subscriptions as sing-box JSON, from the URLs in the unlocked bundle (`Vault`). Each one
-/// falls back to the last good copy (kept in Application Support), then to the snapshot sealed into the build, so
-/// the first connect works even where an airport's subscription host is blocked without a proxy. The China node
-/// (our own Guangzhou server) has no subscription URL: it is only the sealed copy (repo secret CN_NODE_JSON).
+/// The two airport subscriptions as sing-box JSON. Connect uses the last good copy (kept in Application Support) and
+/// fetches only when there is none or it is older than `maxAge`; the refresh button always fetches (`force`), from the
+/// URLs in the unlocked bundle (`Vault`). A failed fetch falls back to the last good copy, then to the snapshot sealed
+/// into the build, so the first connect works even where an airport's subscription host is blocked without a proxy.
+/// The China node (our own Guangzhou server) and the Aliyun HK box have no subscription URL: they are only the sealed
+/// copies (repo secrets CN_NODE_JSON / HK_NODE_JSON).
 enum Subscriptions {
     static let userAgent = "SFI/1.12.0 (sing-box 1.12.0)"
+    static let maxAge: TimeInterval = 7 * 24 * 3600
+    static let sealedOnly: [Plan.Source] = [.cn, .hk]
 
     struct Result {
         var data: [Plan.Source: Data] = [:]
@@ -30,11 +34,27 @@ enum Subscriptions {
         return c
     }
 
-    static func fetchAll(_ payload: Payload) async -> Result {
+    static func cache(_ a: Plan.Source) -> URL { cacheDir.appendingPathComponent("\(a.rawValue).json") }
+
+    /// The last good copy, when it is a usable profile younger than `maxAge`.
+    static func fresh(_ a: Plan.Source) -> Data? {
+        let u = cache(a)
+        guard let at = (try? u.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+              Date().timeIntervalSince(at) < maxAge, let d = try? Data(contentsOf: u), valid(d, a) else { return nil }
+        return d
+    }
+
+    static func fetchAll(_ payload: Payload, force: Bool = false) async -> Result {
         var r = Result()
-        if let c = bundled(.cn, payload) { r.data[.cn] = c } else { r.notes.append("China node: not in this build") }
+        for a in sealedOnly {
+            if let c = bundled(a, payload) { r.data[a] = c } else { r.notes.append("\(name(a)): not in this build") }
+        }
+        var fetch: [Plan.Source] = []
+        for a in Plan.Source.allCases where !sealedOnly.contains(a) {
+            if !force, let d = fresh(a) { r.data[a] = d } else { fetch.append(a) }
+        }
         await withTaskGroup(of: (Plan.Source, Data?, String?).self) { g in
-            for a in Plan.Source.allCases where a != .cn {
+            for a in fetch {
                 g.addTask {
                     guard let u = payload.url(a) else { return (a, nil, "no subscription URL in this build") }
                     var req = URLRequest(url: u, timeoutInterval: 20)
@@ -48,7 +68,7 @@ enum Subscriptions {
                 }
             }
             for await (a, d, why) in g {
-                let cache = cacheDir.appendingPathComponent("\(a.rawValue).json")
+                let cache = cache(a)
                 if let d {
                     try? d.write(to: cache, options: .atomic)
                     r.data[a] = d

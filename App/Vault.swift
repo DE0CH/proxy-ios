@@ -7,20 +7,21 @@ import ProxyCore
 /// unlock password (repo secret PROXY_UNLOCK_PASSWORD), so the public repo's builds hold nothing readable. The app
 /// asks for the password once, keeps it in this device's Keychain and opens the bundle on every launch.
 /// `sealed.json`: {"v":1,"iter":N,"salt":b64,"nonce":b64,"ct":b64(ciphertext+tag)}; the plaintext is
-/// {"liangxin_url","gulu_url","liangxin","gulu","cn"} (the last three: sing-box profiles as strings, or null).
+/// {"liangxin_url","gulu_url","liangxin","gulu","cn","hk"} (the last four: sing-box profiles as strings, or null).
 struct Payload: Decodable {
     let liangxin_url: String?
     let gulu_url: String?
     let liangxin: String?
     let gulu: String?
     let cn: String?
+    let hk: String?
 
     func url(_ a: Plan.Source) -> URL? {
         let s: String?
         switch a {
         case .liangxin: s = liangxin_url
         case .gulu: s = gulu_url
-        case .cn: s = nil
+        case .cn, .hk: s = nil
         }
         return s.flatMap { $0.isEmpty ? nil : URL(string: $0) }
     }
@@ -31,6 +32,7 @@ struct Payload: Decodable {
         case .liangxin: s = liangxin
         case .gulu: s = gulu
         case .cn: s = cn
+        case .hk: s = hk
         }
         return s.map { Data($0.utf8) }
     }

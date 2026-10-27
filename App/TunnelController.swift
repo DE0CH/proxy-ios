@@ -170,9 +170,9 @@ final class TunnelController: ObservableObject {
         return m
     }
 
-    private func buildConfig() async throws -> String {
+    private func buildConfig(fetch: Bool = false) async throws -> String {
         guard let payload else { throw VaultError.wrongPassword }
-        let subs = await Subscriptions.fetchAll(payload)
+        let subs = await Subscriptions.fetchAll(payload, force: fetch)
         let notes = subs.notes
         let r = try ConfigBuilder.build(subscriptions: subs.data, options: BuildOptions(clashSecret: UUID().uuidString))
         let all = notes + r.warnings
@@ -206,7 +206,7 @@ final class TunnelController: ObservableObject {
         working = true
         defer { working = false }
         do {
-            let cfg = try await buildConfig()
+            let cfg = try await buildConfig(fetch: true)
             let msg = try JSONSerialization.data(withJSONObject: ["reload": cfg])
             try s.sendProviderMessage(msg) { _ in }
         } catch { message = "Refresh failed: \(error.localizedDescription)" }

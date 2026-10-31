@@ -29,7 +29,8 @@ curl -fsSL -o PacketTunnel/Rules/geoip-cn.srs https://raw.githubusercontent.com/
 ls -l PacketTunnel/Rules/*.srs
 
 # The subscriptions in plain text go to build/subs (private: never in the app, the repo or an artifact; the replica
-# runs them in a desktop sing-box); the app gets only App/Bundled/sealed.json, sealed with PROXY_UNLOCK_PASSWORD.
+# runs them in a desktop sing-box). The Mac app gets only App/Bundled/sealed.json, sealed with PROXY_UNLOCK_PASSWORD
+# (its zip is a public release); the iPhone app gets App/Bundled/subs.json in plain (it only goes to TestFlight).
 SUBS=build/subs; rm -rf "$SUBS" App/Generated; mkdir -p "$SUBS" App/Bundled; chmod 700 "$SUBS"
 for a in liangxin gulu; do
   v=$(echo "$a" | tr a-z A-Z)_SUB_URL; u="${!v:-}"
@@ -57,6 +58,7 @@ if [ -n "${HK_NODE_JSON:-}" ] && printf '%s' "$HK_NODE_JSON" | python3 -c "impor
 else
   echo "::warning::no valid HK_NODE_JSON: this build has no Aliyun HK box nodes"
 fi
+python3 scripts/seal.py --plain "$SUBS" App/Bundled/subs.json
 if [ -n "${PROXY_UNLOCK_PASSWORD:-}" ]; then
   python3 -c "import cryptography" 2>/dev/null || python3 -m pip install -q --user --break-system-packages cryptography >/dev/null
   python3 scripts/seal.py "$SUBS" App/Bundled/sealed.json

@@ -3,9 +3,10 @@ import XCTest
 /// Walks every flow of the UI against a desktop sing-box running the real generated config (the simulator can't
 /// run the packet tunnel): the network probe from the runner and its selector choices, a re-check, the Test (every
 /// group's exit), the real check of every group's candidate in use, then a relaunch with a mocked China network
-/// (PROXY_MOCK_PROBE) flipping every group. It starts at the unlock screen (Keychain cleared): a wrong password must
-/// be refused, the real one (PROXY_UNLOCK_PASSWORD) opens the sealed subscriptions, and the relaunch must not ask
-/// again. The same file runs on the iPhone simulator and on the Mac.
+/// (PROXY_MOCK_PROBE) flipping every group. The iPhone app embeds the subscriptions, so it must never show the unlock
+/// screen; the Mac app starts at it (Keychain cleared): a wrong password must be refused, the real one
+/// (PROXY_UNLOCK_PASSWORD) opens the sealed subscriptions, and the relaunch must not ask again. The same file runs
+/// on the iPhone simulator and on the Mac.
 /// Screenshots go to $SCREENSHOT_DIR (a host path; the workflow uploads them). Fails on a blank or stuck screen.
 final class ProxyUITests: XCTestCase {
     var app: XCUIApplication!
@@ -53,6 +54,11 @@ final class ProxyUITests: XCTestCase {
     }
 
     func unlock() {
+        #if os(iOS)
+        XCTAssertTrue(el("vpn-toggle").waitForExistence(timeout: 20), "the main screen did not open")
+        XCTAssertFalse(el("unlock-password").exists, "the iPhone app asked for the unlock password")
+        return
+        #endif
         let pw = el("unlock-password")
         XCTAssertTrue(pw.waitForExistence(timeout: 20), "no unlock screen on a fresh install")
         press(pw); pw.typeText("not-the-password")

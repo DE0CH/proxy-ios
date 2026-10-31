@@ -3,8 +3,9 @@
 # cloud-sign with Apple's managed distribution certificate (App Store Connect API key) and upload to TestFlight.
 # The `mac` job walks the same flows in the Mac app (the Mac replica), signs it with the Developer ID certificate,
 # notarizes it and publishes Proxy-mac.zip as a GitHub Release (tag mac-<run number>).
-# Both apps carry the subscriptions only sealed with PROXY_UNLOCK_PASSWORD (scripts/seal.py), so a public release
-# holds nothing readable; the replicas type that password into the unlock screen.
+# The iPhone app embeds the subscriptions in plain (App/Bundled/subs.json; it only goes to TestFlight, never an
+# artifact). The Mac app carries them only sealed with PROXY_UNLOCK_PASSWORD (scripts/seal.py), so its public
+# release holds nothing readable; the Mac replica types that password into the unlock screen.
 #
 # This repo is public and the subscriptions are private, so nothing derived from them may reach the log or an
 # artifact: every step's output is also written to $RUNNER_TEMP/joblog, steps print only verdicts, and

@@ -3,9 +3,10 @@ import CryptoKit
 import Foundation
 import ProxyCore
 
-/// The subscriptions built into the app are sealed (scripts/seal.py: PBKDF2-HMAC-SHA256 -> AES-256-GCM) with the
-/// unlock password (repo secret PROXY_UNLOCK_PASSWORD), so the public repo's builds hold nothing readable. The app
-/// asks for the password once, keeps it in this device's Keychain and opens the bundle on every launch.
+/// The subscriptions built into the app. The iPhone app (TestFlight only) carries them in plain as `subs.json` and
+/// needs no unlock. The Mac app's zip is a public release, so it carries them sealed (scripts/seal.py:
+/// PBKDF2-HMAC-SHA256 -> AES-256-GCM) with the unlock password (repo secret PROXY_UNLOCK_PASSWORD) as `sealed.json`;
+/// it asks for the password once, keeps it in this device's Keychain and opens the bundle on every launch.
 /// `sealed.json`: {"v":1,"iter":N,"salt":b64,"nonce":b64,"ct":b64(ciphertext+tag)}; the plaintext is
 /// {"liangxin_url","gulu_url","liangxin","gulu","cn","hk"} (the last four: sing-box profiles as strings, or null).
 struct Payload: Decodable {
@@ -50,6 +51,13 @@ enum VaultError: LocalizedError {
 
 enum Vault {
     private struct Sealed: Decodable { let v: Int; let iter: Int; let salt: String; let nonce: String; let ct: String }
+
+    /// The plain payload (`subs.json`), in the iPhone build only.
+    static var embedded: Payload? {
+        guard let url = Bundle.main.url(forResource: "subs", withExtension: "json"),
+              let raw = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(Payload.self, from: raw)
+    }
 
     static func open(password: String) throws -> Payload {
         guard let url = Bundle.main.url(forResource: "sealed", withExtension: "json"),

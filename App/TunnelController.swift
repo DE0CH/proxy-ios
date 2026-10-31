@@ -73,7 +73,8 @@ final class TunnelController: ObservableObject {
     @Published var apiError: String?
     @Published var health: HealthReport?
     @Published var checking = false
-    /// The unlocked subscriptions (`Vault`); nil until the password is entered (once per device, then Keychain).
+    /// The subscriptions (`Vault`): embedded in the iPhone build; on the Mac nil until the password is entered (once
+    /// per device, then Keychain).
     @Published private(set) var payload: Payload?
     @Published var unlockError: String?
     #if os(macOS)
@@ -105,7 +106,7 @@ final class TunnelController: ObservableObject {
         mockProbe = env["PROXY_MOCK_PROBE"]
         mockCheckPortBase = env["PROXY_MOCK_CHECK_PORT_BASE"].flatMap(Int.init)
         if env["PROXY_RESET_UNLOCK"] == "1" { Vault.forget() }
-        if let pw = Vault.savedPassword { payload = try? Vault.open(password: pw) }
+        if let p = Vault.embedded { payload = p } else if let pw = Vault.savedPassword { payload = try? Vault.open(password: pw) }
     }
 
     private let mockCheckPortBase: Int?

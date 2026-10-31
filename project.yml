@@ -21,7 +21,7 @@ targets:
     sources:
       - path: App
         excludes: ["Bundled/**"]
-      - path: App/Bundled/sealed.json
+      - path: App/Bundled/subs.json
         buildPhase: resources
     dependencies:
       - package: ProxyCore

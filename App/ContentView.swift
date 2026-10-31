@@ -104,7 +104,7 @@ struct ContentView: View {
                         GroupSection(group: g, health: tunnel.health?.entries[g.tag])
                     }
                     Section {
-                        Text("Fully automatic. Each group uses its fastest valid candidate: China needs an exit in mainland China, International one outside it, AI one outside mainland China and Hong Kong. Going direct is a candidate whenever this network's own exit is valid for the group; the network is checked again on every network change. Delays are each candidate's last test (one HTTP request through it). The real check loads a real page through the candidate in use every few minutes and after every network change; if it fails, the group switches to the fastest candidate that passes until the fastest one works again.")
+                        Text("Fully automatic. Each group uses its fastest valid candidate: China needs an exit in mainland China, International one outside it, AI one outside mainland China and Hong Kong. Going direct is a candidate whenever this network's own exit is valid for the group; the network is checked again on every network change. The delay is the connected candidate's last test (one HTTP request through it). The real check loads a real page through the candidate in use every few minutes and after every network change; if it fails, the group switches to the fastest candidate that passes until the fastest one works again.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 } else if tunnel.connected {
@@ -198,17 +198,6 @@ struct GroupSection: View {
                 .font(.caption).foregroundStyle(.secondary)
                 .accessibilityIdentifier("direct-\(group.tag)")
                 .accessibilityValue(group.directAllowed ? "allowed" : "not allowed")
-            ForEach(group.candidates) { n in
-                let cur = n.tag == group.current
-                HStack {
-                    Text(n.name).font(.subheadline.weight(cur ? .semibold : .regular))
-                        .foregroundStyle(cur ? Color.green : Color.primary)
-                    Spacer()
-                    Text(delayText(n.delay)).font(.subheadline.monospacedDigit()).foregroundStyle(.secondary)
-                }
-                .accessibilityElement(children: .combine)
-                .accessibilityIdentifier("node-\(group.tag)-\(n.name)")
-            }
         }
     }
 }

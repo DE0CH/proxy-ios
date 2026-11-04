@@ -3,7 +3,7 @@ import Foundation
 /// The routing plan: three groups. Going direct always wins when it is available: direct is never raced against the
 /// nodes, and the nodes (the fastest valid one) are used only when direct is not valid on this network or fails:
 ///   China (geosite-cn / geoip-cn)       nodes: the China node(s)   direct valid: exits in mainland China
-///   AI (geosite category-ai-!cn)        nodes: airport nodes       direct valid: exits outside mainland China and HK
+///   AI (geosite category-ai-!cn, except Google's)   nodes: airport nodes   direct valid: exits outside mainland China and HK
 ///   International (everything else)     nodes: airport nodes + the Aliyun HK box   direct valid: exits outside mainland China
 /// Node validity is known from the node's name (region); direct's availability is measured by `NetworkProbe` on every
 /// network change and by the real check (`HealthCheck`) every round. Each group is a selector whose automatic member
@@ -17,6 +17,8 @@ public enum Plan {
     public static let china = "China"
     public static let intl = "International"
     public static let ai = "AI"
+    /// Google's own domains: matched before the AI rule set and sent to International, so Gemini is not AI.
+    public static let googleSuffixes = ["google", "google.com", "googleapis.com", "gstatic.com", "withgoogle.com"]
     public static let nodesSuffix = "·nodes"
     public static let directPrefix = "direct·"
     public static let checkPrefix = "check·"
@@ -207,6 +209,9 @@ public enum ConfigBuilder {
         routeRules += [
             ["protocol": "dns", "action": "hijack-dns"],
             ["ip_is_private": true, "outbound": "direct"],
+            // Google (Gemini included) never goes through AI (Deyao, 2026-11-04): its hosts share connections, so
+            // splitting Gemini off put YouTube/Google traffic on the AI node
+            ["domain_suffix": Plan.googleSuffixes, "outbound": Plan.intl],
             ["rule_set": ["geosite-ai"], "outbound": Plan.ai],
             ["rule_set": ["geosite-cn", "geoip-cn"], "outbound": Plan.china],
         ]

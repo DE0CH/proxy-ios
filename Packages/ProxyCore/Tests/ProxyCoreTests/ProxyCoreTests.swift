@@ -85,6 +85,9 @@ final class ConfigBuilderTests: XCTestCase {
         XCTAssertEqual(rules[ai]["outbound"] as? String, Plan.ai)
         XCTAssertEqual(rules[cn]["outbound"] as? String, Plan.china)
         XCTAssertLessThan(ai, cn, "AI must match before the China rule")
+        let google = rules.firstIndex { ($0["domain_suffix"] as? [String])?.contains("google.com") == true }!
+        XCTAssertEqual(rules[google]["outbound"] as? String, Plan.intl)
+        XCTAssertLessThan(google, ai, "Google must match before the AI rule set (Gemini is not AI)")
         let dns = c["dns"] as! [String: Any]
         let servers = dns["servers"] as! [[String: Any]]
         XCTAssertEqual(servers.first { $0["tag"] as? String == "cn" }?["detour"] as? String, Plan.china)

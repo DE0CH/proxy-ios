@@ -5,7 +5,7 @@ import ProxyCore
 /// fetches only when there is none or it is older than `maxAge`; the refresh button always fetches (`force`), from the
 /// URLs in the unlocked bundle (`Vault`). A failed fetch falls back to the last good copy, then to the snapshot sealed
 /// into the build, so the first connect works even where an airport's subscription host is blocked without a proxy.
-/// The China node (our own Guangzhou server) and the Aliyun HK box have no subscription URL: they are only the sealed
+/// The China node (our own Guangdong home-broadband exit) and the Aliyun HK box have no subscription URL: they are only the sealed
 /// copies (repo secrets CN_NODE_JSON / HK_NODE_JSON).
 enum Subscriptions {
     static let userAgent = "SFI/1.12.0 (sing-box 1.12.0)"

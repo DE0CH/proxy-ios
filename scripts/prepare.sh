@@ -3,7 +3,7 @@
 # DE0CH/libbox-apple: iOS, simulator and macOS), the sing-box rule sets, a build-time snapshot of both subscriptions
 # (from env LIANGXIN_SUB_URL / GULU_SUB_URL; when a live fetch fails here, the stored snapshot in
 # LIANGXIN_SUB_SNAPSHOT / GULU_SUB_SNAPSHOT — 咕噜云's host refuses GitHub's runners) and the China node (env
-# CN_NODE_JSON: our Guangzhou server's outbounds as a sing-box profile; without it the build warns and China goes
+# CN_NODE_JSON: our China node, a Guangdong home-broadband line behind our Shenzhen relay, as a sing-box profile; without it the build warns and China goes
 # direct only) and the Aliyun HK box (env HK_NODE_JSON: its two nodes as a sing-box profile, written by claude-env's
 # scripts/hk-proxy/singbox-nodes.py; optional, International only), all sealed into App/Bundled/sealed.json with PROXY_UNLOCK_PASSWORD (scripts/seal.py), then
 # `xcodegen generate`.

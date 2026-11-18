@@ -19,10 +19,9 @@ on:
       upload: { description: "Upload to TestFlight", type: boolean, default: true }
       mac: { description: "Build, notarize and release the Mac app", type: boolean, default: true }
       simulator: { description: "Run the simulator replica first", type: boolean, default: true }
-  push:
-    branches: [main]
+  push:  # every branch (the gate merges a branch when this is green); main alone uploads and releases the Mac app
     paths: ["App/**", "PacketTunnel/**", "PacketTunnelMac/**", "Packages/**", "UITests/**", "project.yml", "scripts/**", ".github/workflows/ios.yml"]
-concurrency: { group: ios, cancel-in-progress: false }
+concurrency: { group: "ios-${{ github.ref }}", cancel-in-progress: false }
 permissions: { contents: read }
 defaults:
   run:
@@ -74,7 +73,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with: { name: replica-screens, path: "test-output/screens/*.png", if-no-files-found: ignore }
       - name: Archive (unsigned)
-        if: (github.event_name == 'push' || inputs.upload) && (steps.replica.outcome == 'success' || steps.replica.outcome == 'skipped')
+        if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || inputs.upload) && (steps.replica.outcome == 'success' || steps.replica.outcome == 'skipped')
         run: |
           {
             xcodebuild archive -project Proxy.xcodeproj -scheme Proxy -configuration Release -destination 'generic/platform=iOS' \
@@ -91,7 +90,7 @@ jobs:
             du -sh "$APP" "$APP/PlugIns/PacketTunnel.appex" | sed "s#$RUNNER_TEMP/##"
           } 2>&1 | tee "$RUNNER_TEMP/joblog/archive.log"
       - name: Export, cloud-sign and upload to TestFlight
-        if: (github.event_name == 'push' || inputs.upload) && (steps.replica.outcome == 'success' || steps.replica.outcome == 'skipped')
+        if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || inputs.upload) && (steps.replica.outcome == 'success' || steps.replica.outcome == 'skipped')
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -110,7 +109,7 @@ jobs:
         run: python3 scripts/leak-check.py "$RUNNER_TEMP/joblog"
 
   mac:
-    if: github.event_name == 'push' || inputs.mac
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || inputs.mac
     runs-on: macos-26
     timeout-minutes: 75
     permissions: { contents: write }
